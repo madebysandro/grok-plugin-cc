@@ -93,7 +93,7 @@ function requireGrok() {
       [
         "Grok CLI not found.",
         "",
-        "Install it from https://github.com/xai-org/grok-cli, then run `grok login`.",
+        "Install it from https://x.ai/build, then run `grok login`.",
         "If it is installed somewhere unusual, set GROK_BIN to its full path.",
         "",
         "Run `/grok:setup` for a full readiness check."
@@ -305,7 +305,7 @@ async function commandSetup({ options }) {
   lines.push("");
 
   if (!binary) {
-    lines.push("Install the Grok CLI from https://github.com/xai-org/grok-cli, then run `grok login`.");
+    lines.push("Install the Grok CLI from https://x.ai/build, then run `grok login`.");
   } else if (!auth.authenticated) {
     lines.push("Run `!grok login` to sign in.");
   } else if (videoBlocked) {
