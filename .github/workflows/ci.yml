@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: npm test
+
+  validate-manifests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate plugin manifests are well-formed JSON
+        run: |
+          for f in .claude-plugin/marketplace.json plugins/grok/.claude-plugin/plugin.json; do
+            node -e "JSON.parse(require('fs').readFileSync('$f','utf8'))" && echo "ok $f"
+          done
+      - name: Every command and skill has front matter
+        run: |
+          status=0
+          for f in plugins/grok/commands/*.md plugins/grok/skills/*/SKILL.md plugins/grok/agents/*.md; do
+            head -1 "$f" | grep -q '^---$' || { echo "missing front matter: $f"; status=1; }
+          done
+          exit $status

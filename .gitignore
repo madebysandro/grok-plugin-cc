@@ -1,0 +1,4 @@
+node_modules/
+grok-media/
+*.log
+.DS_Store

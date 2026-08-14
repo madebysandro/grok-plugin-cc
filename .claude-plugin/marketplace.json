@@ -1,0 +1,21 @@
+{
+  "name": "grok-plugin-cc",
+  "owner": {
+    "name": "Ariel Aizenshtat"
+  },
+  "metadata": {
+    "description": "Generate and edit images and video with the Grok CLI, from inside Claude Code or Codex.",
+    "version": "1.0.0"
+  },
+  "plugins": [
+    {
+      "name": "grok",
+      "description": "Use Grok from Claude Code to generate images and video, or to delegate a task.",
+      "version": "1.0.0",
+      "author": {
+        "name": "Ariel Aizenshtat"
+      },
+      "source": "./plugins/grok"
+    }
+  ]
+}
