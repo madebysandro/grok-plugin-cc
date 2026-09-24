@@ -7,8 +7,8 @@ import test from "node:test";
 import { createSandbox } from "./companion-harness.mjs";
 import { sessionDirFor } from "./helpers.mjs";
 
-// The companion does not pass --session-id yet, so this pins down the fake's
-// side of that contract directly: later tickets rely on it.
+// Pins down the fake's side of the --session-id contract that media runs rely
+// on to find their session folder.
 test("the fake grok writes its session under the --session-id it is given", (t) => {
   const sandbox = createSandbox(t);
   sandbox.scenario({ calls: [{ tool: "image_gen" }] });

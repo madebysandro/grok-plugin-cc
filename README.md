@@ -149,7 +149,8 @@ plugins/grok/
   scripts/
     grok-companion.mjs
     lib/
-      grok.mjs      CLI discovery, headless invocation, auth and ZDR detection
+      grok.mjs      CLI discovery, running Grok headless, auth and ZDR detection
+      invocation.mjs  the command line and environment of each Grok run
       session.mjs   session-log parsing and media-call extraction
       assets.mjs    copying assets out, naming, manifest
       prompts.mjs   the instruction templates sent to Grok

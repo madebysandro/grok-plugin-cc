@@ -30,15 +30,39 @@ grok -p "List the exact names of every tool you have available that generates or
 
 ## Invocation
 
+`lib/invocation.mjs` builds every run. A media run looks like this:
+
 ```bash
-grok -p "<prompt>" --always-approve --output-format json --cwd <dir> \
-     --disallowed-tools "run_terminal_command,search_tool,use_tool,..." --max-turns 6
+GROK_CLAUDE_{SKILLS,AGENTS,HOOKS,MCPS,RULES}_ENABLED=false \
+GROK_CURSOR_{SKILLS,AGENTS,HOOKS,MCPS,RULES}_ENABLED=false \
+GROK_PLUGIN_CC_WORKER=1 \
+grok -p "<prompt>" --always-approve --output-format json --cwd <dir> --max-turns 6 \
+     --tools image_gen --disallowed-tools "run_terminal_command,search_tool,use_tool,..." \
+     --no-subagents --disable-web-search --no-auto-update --session-id <new uuid>
 ```
 
 - `--output-format json` prints one envelope: `{ text, sessionId, usage, total_cost_usd, num_turns }`. `sessionId` is the key to everything below.
 - `--always-approve` is required; a headless run otherwise blocks on tool approval.
-- `--disallowed-tools` is the single biggest lever on cost and latency. Without it the agent spends turns copying files with `cp` and hunting for tools through `search_tool`. Grok silently ignores names it does not recognise, so listing both `run_terminal_command` and the legacy `run_terminal_cmd` is safe.
+- `--tools` is an allowlist, one per command: image → `image_gen`, edit → `image_edit`, animate → `image_to_video`, video → `image_gen,image_to_video`. It still keeps Grok's always-on MCP meta-tools (`search_tool`, `use_tool`), so `--disallowed-tools` stays; when both flags are given the denylist wins. Grok silently ignores names it does not recognise, so listing both `run_terminal_command` and the legacy `run_terminal_cmd` is safe.
+- `--session-id` takes a **new** UUID (Grok errors if it is in use). The plugin generates it, so the session folder is known before the run starts.
 - `--max-turns` bounds a run that goes sideways.
+- `ask` keeps Grok's full toolset and the user's setup: no `--tools`, no isolation variables, and `--disallowed-tools` only for the write tools while it is read-only.
+
+### Isolation from the user's Claude and Cursor setup
+
+Without the ten `GROK_{CLAUDE,CURSOR}_*_ENABLED=false` variables, Grok loads the user's Claude and Cursor skills, agents, hooks, MCP servers and rules into every media run. The before/after measurement of the whole lock-down (`--tools` plus these variables) is in the plugin's `CHANGELOG.md`.
+
+What `grok inspect --json` reports under those variables (1.0.41, 2026-09-24):
+
+- **Switched off** (`compatibilityStatus: disabled`): skills in `~/.claude/skills`, skills that Claude plugins provide (this plugin's three included), Claude hooks, and MCP servers from `~/.claude.json` and `~/.cursor/mcp.json`.
+- **Still loaded — Claude plugins.** There is no documented switch for them. Every installed Claude plugin is still listed as enabled, including this one. The hooks and agents plugins provide (this plugin's `grok-media` agent included) report no compatibility status, so they appear to keep loading. `--no-subagents` stops a media run from spawning those agents, and the recursion guard below covers the rest of the risk.
+- **Still loaded — Grok's own setup**, by design: skills in `~/.grok/skills`, `~/.agents/skills` and Grok's bundle, hooks in `~/.grok/hooks`, and MCP servers from `~/.grok/config.toml`.
+
+### Recursion guard
+
+Every Grok process the plugin starts, `ask` included, gets `GROK_PLUGIN_CC_WORKER=1`. The companion refuses media commands when that variable is set, so a Grok run the plugin started can never call back into the plugin and start another quota-spending Grok run. `ask` is not refused: it spends no media quota by itself.
+
+The guard only recognises Grok runs the plugin started. A Grok session the user opens themselves, with this Claude plugin loaded, carries no marker and is not refused.
 
 ## Where generated files land
 

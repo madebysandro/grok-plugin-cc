@@ -13,13 +13,13 @@ import path from "node:path";
 
 import { parseArgs, parseCount, splitArgumentString } from "./lib/args.mjs";
 import {
-  MEDIA_DISALLOWED_TOOLS,
   findGrokBinary,
   getGrokVersion,
   isZeroDataRetentionVideoError,
   readGrokAuth,
   runGrokHeadless
 } from "./lib/grok.mjs";
+import { MEDIA_TOOL_ALLOWLIST, WORKER_ENV_VAR, buildGrokInvocation } from "./lib/invocation.mjs";
 import {
   extractAgentMessage,
   extractMediaCalls,
@@ -47,6 +47,7 @@ import {
 } from "./lib/prompts.mjs";
 
 const COMMANDS = new Set(["setup", "image", "edit", "video", "animate", "ask", "status", "result", "cancel", "help"]);
+const MEDIA_COMMANDS = new Set(Object.keys(MEDIA_TOOL_ALLOWLIST));
 
 const SHARED_VALUE_OPTIONS = ["out", "aspect", "count", "name", "model", "effort", "timeout", "duration", "job"];
 const SHARED_BOOLEAN_OPTIONS = ["json", "verbatim", "raw", "keep-session", "read-only", "write"];
@@ -145,12 +146,13 @@ async function runMediaCommand({ command, options, positionals, cwd, promptBuild
 
   const run = await runGrokHeadless({
     binary,
-    prompt: grokPrompt,
-    cwd,
-    model: options.model,
-    effort: options.effort,
-    maxTurns: extra.maxTurns ?? 8,
-    disallowedTools: MEDIA_DISALLOWED_TOOLS,
+    ...buildGrokInvocation(command, {
+      prompt: grokPrompt,
+      cwd,
+      model: options.model,
+      effort: options.effort,
+      maxTurns: extra.maxTurns ?? 8
+    }),
     timeoutMs,
     onStderr: (chunk) => {
       try {
@@ -354,12 +356,14 @@ async function commandAsk({ options, positionals, cwd }) {
   const startedAt = Date.now();
   const run = await runGrokHeadless({
     binary,
-    prompt: buildAskPrompt({ prompt, readOnly }),
-    cwd,
-    model: options.model,
-    effort: options.effort,
-    timeoutMs,
-    disallowedTools: readOnly ? ["write", "search_replace", "delete_file", "edit_notebook"] : []
+    ...buildGrokInvocation("ask", {
+      prompt: buildAskPrompt({ prompt, readOnly }),
+      cwd,
+      model: options.model,
+      effort: options.effort,
+      readOnly
+    }),
+    timeoutMs
   });
 
   const elapsedMs = Date.now() - startedAt;
@@ -480,7 +484,7 @@ function commandHelp() {
       "  setup                       Check the Grok CLI is installed, signed in, and what it can generate",
       "  image   <prompt>            Generate image(s) with image_gen",
       "  edit    <prompt> --image P  Edit an existing image with image_edit",
-      "  video   <prompt>            Generate a video with video_gen",
+      "  video   <prompt>            Generate a video (image_gen, then image_to_video)",
       "  animate <prompt> --image P  Animate a still with image_to_video",
       "  ask     <prompt>            Delegate a general task to Grok",
       "  status                      List background jobs for this workspace",
@@ -517,6 +521,18 @@ async function main() {
 
   if (!COMMANDS.has(command)) {
     fail(`Unknown command: ${command}\nRun with no arguments for usage.`);
+  }
+
+  // Recursion guard: this process was started by a Grok run the plugin itself
+  // launched. Going on would start yet another Grok run and spend quota again.
+  if (MEDIA_COMMANDS.has(command) && process.env[WORKER_ENV_VAR]) {
+    fail(
+      [
+        `Refusing to run \`${command}\` inside a Grok run started by this plugin (${WORKER_ENV_VAR} is set).`,
+        "Grok calling back into the plugin would start another Grok run and spend quota again.",
+        "Run the command from Claude Code or a normal shell instead."
+      ].join("\n")
+    );
   }
 
   const { options, positionals } = parseArgs(argv.slice(1), {
