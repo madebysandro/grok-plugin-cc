@@ -83,11 +83,11 @@ export function createSandbox(t) {
     },
 
     /** Run the companion; resolves with `{ code, stdout, stderr }`. */
-    run(args) {
+    run(args, { env: extraEnv } = {}) {
       return new Promise((resolve, reject) => {
         const child = spawn(process.execPath, [COMPANION, ...args], {
           cwd: dirs.workspace,
-          env,
+          env: { ...env, ...extraEnv },
           timeout: RUN_TIMEOUT_MS
         });
         let stdout = "";

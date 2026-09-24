@@ -4,9 +4,8 @@ import test from "node:test";
 
 import { LIB } from "./helpers.mjs";
 
-const { AVAILABLE_MEDIA_TOOLS, MEDIA_DISALLOWED_TOOLS, isZeroDataRetentionVideoError, parseGrokEnvelope } = await import(
-  path.join(LIB, "grok.mjs")
-);
+const { AVAILABLE_MEDIA_TOOLS, isZeroDataRetentionVideoError, parseGrokEnvelope } = await import(path.join(LIB, "grok.mjs"));
+const { MEDIA_DISALLOWED_TOOLS } = await import(path.join(LIB, "invocation.mjs"));
 
 test("parses a clean JSON envelope", () => {
   const envelope = parseGrokEnvelope(JSON.stringify({ text: "hi", sessionId: "abc", total_cost_usd: 0.12 }));

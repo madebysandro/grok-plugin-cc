@@ -1,8 +1,9 @@
 /**
  * Discovery and headless invocation of the Grok CLI (`grok`).
  *
- * Everything the plugin does funnels through `runGrokHeadless`, which shells
- * out to `grok -p ... --output-format json` and returns the parsed envelope.
+ * Everything the plugin does funnels through `runGrokHeadless`, which runs the
+ * `grok -p ... --output-format json` command line built by `invocation.mjs`
+ * and returns the parsed envelope.
  */
 
 import { spawn } from "node:child_process";
@@ -44,31 +45,6 @@ export const AVAILABLE_MEDIA_TOOLS = Object.freeze([
   "image_to_video",
   "reference_to_video"
 ]);
-
-/**
- * Tools that only slow a media run down (and cost tokens).
- *
- * `search_tool`/`use_tool` matter most: without them the agent responds to a
- * missing tool by trawling MCP discovery for several turns instead of failing
- * fast. Both the current and legacy spellings of the shell tool are listed;
- * Grok silently ignores names it does not recognise.
- */
-export const MEDIA_DISALLOWED_TOOLS = [
-  "run_terminal_command",
-  "run_terminal_cmd",
-  "write",
-  "search_replace",
-  "delete_file",
-  "edit_notebook",
-  "todo_write",
-  "web_fetch",
-  "web_search",
-  "search_tool",
-  "use_tool",
-  "spawn_subagent",
-  "task",
-  "Agent"
-];
 
 function isExecutable(candidate) {
   try {
@@ -208,50 +184,20 @@ export function isZeroDataRetentionVideoError(text) {
 }
 
 /**
- * Run a single headless Grok turn.
+ * Run a single headless Grok turn, as built by `buildGrokInvocation`
+ * (see `invocation.mjs`).
  *
  * Resolves with `{ ok, envelope, sessionId, stdout, stderr, code, timedOut }`.
  * A non-zero exit is reported, never thrown, so callers can render a useful
  * message alongside whatever the session log already captured.
  */
 export function runGrokHeadless(options) {
-  const {
-    binary,
-    prompt,
-    cwd = process.cwd(),
-    model,
-    effort,
-    maxTurns,
-    sessionId,
-    disallowedTools = [],
-    extraArgs = [],
-    timeoutMs = 900_000,
-    onStderr
-  } = options;
-
-  const args = ["-p", prompt, "--always-approve", "--output-format", "json", "--cwd", cwd];
-
-  if (model) {
-    args.push("--model", model);
-  }
-  if (effort) {
-    args.push("--reasoning-effort", effort);
-  }
-  if (Number.isFinite(maxTurns)) {
-    args.push("--max-turns", String(maxTurns));
-  }
-  if (sessionId) {
-    args.push("--session-id", sessionId);
-  }
-  if (disallowedTools.length > 0) {
-    args.push("--disallowed-tools", disallowedTools.join(","));
-  }
-  args.push(...extraArgs);
+  const { binary, args, env = process.env, cwd = process.cwd(), sessionId, timeoutMs = 900_000, onStderr } = options;
 
   return new Promise((resolve) => {
     let child;
     try {
-      child = spawn(binary, args, { cwd, stdio: ["ignore", "pipe", "pipe"] });
+      child = spawn(binary, args, { cwd, env, stdio: ["ignore", "pipe", "pipe"] });
     } catch (error) {
       resolve({
         ok: false,
