@@ -25,7 +25,7 @@ Order the prompt roughly: **subject → action or pose → setting → style →
 - One coherent scene per prompt. Two competing focal points produce a muddle.
 - Two to five sentences is the sweet spot. Past that, later details start getting dropped.
 
-Match the aspect ratio to the use: `16:9` banner or video frame, `9:16` phone or story, `1:1` avatar or icon, `4:3`/`3:4` print-ish.
+Match the aspect ratio to the use: `16:9` banner or video frame, `9:16` phone or story, `1:1` avatar or icon, `3:2`/`2:3` print-ish. `image_gen` takes only 1:1, 16:9, 9:16, 3:2, 2:3 and auto.
 
 ## An example
 

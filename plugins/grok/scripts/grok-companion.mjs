@@ -28,6 +28,17 @@ import {
   resolveSessionDir
 } from "./lib/session.mjs";
 import { collectAssets, resolveOutDir, slugify, writeManifest } from "./lib/assets.mjs";
+import {
+  DEFAULT_VIDEO_DURATION,
+  DEFAULT_VIDEO_RESOLUTION,
+  DRAFT_VIDEO_RESOLUTION,
+  IMAGE_EDIT_ASPECTS,
+  IMAGE_GEN_ASPECTS,
+  IMAGE_TO_VIDEO_DURATIONS,
+  MediaOptionError,
+  VIDEO_RESOLUTIONS,
+  resolveMediaSpec
+} from "./lib/media-spec.mjs";
 import { resolveImageArg } from "./lib/refs.mjs";
 import {
   findJob,
@@ -49,8 +60,8 @@ import {
 const COMMANDS = new Set(["setup", "image", "edit", "video", "animate", "ask", "status", "result", "cancel", "help"]);
 const MEDIA_COMMANDS = new Set(Object.keys(MEDIA_TOOL_ALLOWLIST));
 
-const SHARED_VALUE_OPTIONS = ["out", "aspect", "count", "name", "model", "effort", "timeout", "duration", "job"];
-const SHARED_BOOLEAN_OPTIONS = ["json", "verbatim", "raw", "keep-session", "read-only", "write"];
+const SHARED_VALUE_OPTIONS = ["out", "aspect", "count", "name", "model", "effort", "timeout", "duration", "resolution", "job"];
+const SHARED_BOOLEAN_OPTIONS = ["json", "verbatim", "raw", "keep-session", "read-only", "write", "draft"];
 
 const ZDR_HINT = [
   "Cause: this xAI account has Zero Data Retention enabled",
@@ -112,7 +123,18 @@ async function runMediaCommand({ command, options, positionals, cwd, promptBuild
 
   const prompt = positionals.join(" ").trim();
   if (!prompt) {
-    fail(`No prompt given. Usage: /grok:${command} <prompt> [--out DIR] [--aspect 16:9]`);
+    fail(`No prompt given. Usage: /grok:${command} <prompt> [options]`);
+  }
+
+  // Options Grok would reject are refused here, before a job exists or quota is spent.
+  let spec;
+  try {
+    spec = resolveMediaSpec(command, options);
+  } catch (error) {
+    if (!(error instanceof MediaOptionError)) {
+      throw error;
+    }
+    fail(error.message);
   }
 
   const outDir = resolveOutDir(options.out, cwd, defaultOutDir);
@@ -121,8 +143,9 @@ async function runMediaCommand({ command, options, positionals, cwd, promptBuild
 
   const grokPrompt = promptBuilder({
     prompt,
-    aspect: options.aspect ?? null,
-    duration: options.duration ?? null,
+    aspect: spec.aspect ?? null,
+    duration: spec.duration ?? null,
+    resolution: spec.resolution ?? null,
     count,
     verbatim: options.verbatim !== false,
     ...extra.promptExtras
@@ -193,7 +216,7 @@ async function runMediaCommand({ command, options, positionals, cwd, promptBuild
     writeManifest({
       outDir,
       entries: saved,
-      meta: { command, requestedPrompt: prompt, sessionId, aspect: options.aspect ?? null, costUsd: Number.isFinite(costUsd) ? costUsd : null }
+      meta: { command, requestedPrompt: prompt, sessionId, ...spec, costUsd: Number.isFinite(costUsd) ? costUsd : null }
     });
 
     upsertJob(cwd, { id: jobId, status: "completed", assetCount: saved.length, sessionId, files: saved.map((asset) => asset.file) });
@@ -253,7 +276,7 @@ async function runMediaCommand({ command, options, positionals, cwd, promptBuild
     writeManifest({
       outDir,
       entries: saved,
-      meta: { command, requestedPrompt: prompt, sessionId, partial: true, costUsd: Number.isFinite(costUsd) ? costUsd : null }
+      meta: { command, requestedPrompt: prompt, sessionId, ...spec, partial: true, costUsd: Number.isFinite(costUsd) ? costUsd : null }
     });
   }
 
@@ -493,7 +516,9 @@ function commandHelp() {
       "",
       "Common options:",
       "  --out DIR        Output directory (default: grok-media/)",
-      "  --aspect RATIO   1:1, 16:9, 9:16, 4:3, 3:4",
+      `  --aspect RATIO   image, video: ${IMAGE_GEN_ASPECTS.join(", ")}`,
+      `                   edit, with 2+ images only: ${IMAGE_EDIT_ASPECTS.join(", ")}`,
+      "                   (animate keeps the source image's shape)",
       "  --count N        Number of images (1-8)",
       "  --name SLUG      Filename stem",
       "  --model M        Grok model id",
@@ -501,6 +526,12 @@ function commandHelp() {
       "  --timeout SECS   Run timeout",
       "  --json           Machine-readable output",
       "  --verbatim=false Let Grok rewrite the prompt instead of passing it through",
+      "",
+      "Video options (animate, video):",
+      `  --duration SECS  ${IMAGE_TO_VIDEO_DURATIONS.join(" or ")} (default ${DEFAULT_VIDEO_DURATION})`,
+      `  --resolution R   ${VIDEO_RESOLUTIONS.join(" or ")} (default ${DEFAULT_VIDEO_RESOLUTION}; the CLI offers nothing higher)`,
+      `  --draft          A cheap ${DRAFT_VIDEO_RESOLUTION} try-out; ${DEFAULT_VIDEO_DURATION} s unless --duration is given,`,
+      "                   and not combinable with --resolution",
       "",
       "Input images (--image) take a path, a data: URL, or an earlier result:",
       "  @last            The last file the newest job in this workspace saved",
@@ -535,12 +566,18 @@ async function main() {
     );
   }
 
-  const { options, positionals } = parseArgs(argv.slice(1), {
-    valueOptions: SHARED_VALUE_OPTIONS,
-    booleanOptions: SHARED_BOOLEAN_OPTIONS,
-    repeatOptions: ["image"],
-    aliases: { o: "out", n: "count", m: "model" }
-  });
+  let parsed;
+  try {
+    parsed = parseArgs(argv.slice(1), {
+      valueOptions: SHARED_VALUE_OPTIONS,
+      booleanOptions: SHARED_BOOLEAN_OPTIONS,
+      repeatOptions: ["image"],
+      aliases: { o: "out", n: "count", m: "model" }
+    });
+  } catch (error) {
+    fail(error.message);
+  }
+  const { options, positionals } = parsed;
 
   const cwd = process.env.CLAUDE_PROJECT_DIR ? path.resolve(process.env.CLAUDE_PROJECT_DIR) : process.cwd();
 

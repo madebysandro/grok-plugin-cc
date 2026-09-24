@@ -93,7 +93,7 @@ Both of these happened to render their lettering cleanly. Do not count on that â
 | Option | Meaning |
 | --- | --- |
 | `--out DIR` | Output directory (default `grok-media/`) |
-| `--aspect RATIO` | `1:1`, `16:9`, `9:16`, `4:3`, `3:4` |
+| `--aspect RATIO` | `image`/`video`: `1:1`, `16:9`, `9:16`, `3:2`, `2:3`, `auto`; `edit` takes a wider set, only with 2+ images; `animate` keeps the source's shape |
 | `--count N` | Number of images, 1â€“8 |
 | `--name SLUG` | Filename stem |
 | `--image PATH` | Source image for `edit`/`animate`; repeatable for `edit` |
