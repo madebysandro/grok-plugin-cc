@@ -28,7 +28,17 @@ import {
   resolveSessionDir
 } from "./lib/session.mjs";
 import { collectAssets, resolveOutDir, slugify, writeManifest } from "./lib/assets.mjs";
-import { MediaOptionError, resolveMediaSpec } from "./lib/media-spec.mjs";
+import {
+  DEFAULT_VIDEO_DURATION,
+  DEFAULT_VIDEO_RESOLUTION,
+  DRAFT_VIDEO_RESOLUTION,
+  IMAGE_EDIT_ASPECTS,
+  IMAGE_GEN_ASPECTS,
+  IMAGE_TO_VIDEO_DURATIONS,
+  MediaOptionError,
+  VIDEO_RESOLUTIONS,
+  resolveMediaSpec
+} from "./lib/media-spec.mjs";
 import { resolveImageArg } from "./lib/refs.mjs";
 import {
   findJob,
@@ -112,7 +122,7 @@ async function runMediaCommand({ command, options, positionals, cwd, promptBuild
 
   const prompt = positionals.join(" ").trim();
   if (!prompt) {
-    fail(`No prompt given. Usage: /grok:${command} <prompt> [--out DIR] [--aspect 16:9]`);
+    fail(`No prompt given. Usage: /grok:${command} <prompt> [options]`);
   }
 
   // Options Grok would reject are refused here, before a job exists or quota is spent.
@@ -502,8 +512,8 @@ function commandHelp() {
       "",
       "Common options:",
       "  --out DIR        Output directory (default: grok-media/)",
-      "  --aspect RATIO   image, video: 1:1, 16:9, 9:16, 3:2, 2:3, auto",
-      "                   edit, with 2+ images only: also 4:3, 3:4, 2:1, 1:2, 19.5:9, 9:19.5, 20:9, 9:20",
+      `  --aspect RATIO   image, video: ${IMAGE_GEN_ASPECTS.join(", ")}`,
+      `                   edit, with 2+ images only: ${IMAGE_EDIT_ASPECTS.join(", ")}`,
       "                   (animate keeps the source image's shape)",
       "  --count N        Number of images (1-8)",
       "  --name SLUG      Filename stem",
@@ -514,9 +524,9 @@ function commandHelp() {
       "  --verbatim=false Let Grok rewrite the prompt instead of passing it through",
       "",
       "Video options (animate, video):",
-      "  --duration SECS  6 or 10 (default 6)",
-      "  --resolution R   480p or 720p (default 720p; the CLI offers nothing higher)",
-      "  --draft          A cheap 480p try-out; 6 s unless --duration is given,",
+      `  --duration SECS  ${IMAGE_TO_VIDEO_DURATIONS.join(" or ")} (default ${DEFAULT_VIDEO_DURATION})`,
+      `  --resolution R   ${VIDEO_RESOLUTIONS.join(" or ")} (default ${DEFAULT_VIDEO_RESOLUTION}; the CLI offers nothing higher)`,
+      `  --draft          A cheap ${DRAFT_VIDEO_RESOLUTION} try-out; ${DEFAULT_VIDEO_DURATION} s unless --duration is given,`,
       "                   and not combinable with --resolution",
       "",
       "Input images (--image) take a path, a data: URL, or an earlier result:",
@@ -540,12 +550,18 @@ async function main() {
     fail(`Unknown command: ${command}\nRun with no arguments for usage.`);
   }
 
-  const { options, positionals } = parseArgs(argv.slice(1), {
-    valueOptions: SHARED_VALUE_OPTIONS,
-    booleanOptions: SHARED_BOOLEAN_OPTIONS,
-    repeatOptions: ["image"],
-    aliases: { o: "out", n: "count", m: "model" }
-  });
+  let parsed;
+  try {
+    parsed = parseArgs(argv.slice(1), {
+      valueOptions: SHARED_VALUE_OPTIONS,
+      booleanOptions: SHARED_BOOLEAN_OPTIONS,
+      repeatOptions: ["image"],
+      aliases: { o: "out", n: "count", m: "model" }
+    });
+  } catch (error) {
+    fail(error.message);
+  }
+  const { options, positionals } = parsed;
 
   const cwd = process.env.CLAUDE_PROJECT_DIR ? path.resolve(process.env.CLAUDE_PROJECT_DIR) : process.cwd();
 

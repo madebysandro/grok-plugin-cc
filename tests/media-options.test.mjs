@@ -20,6 +20,15 @@ function promptSetting(sandbox, key) {
 
 const VIDEO_CALLS = [{ tool: "image_gen" }, { tool: "image_to_video" }];
 
+function lastGeneration(sandbox) {
+  const manifest = JSON.parse(fs.readFileSync(path.join(sandbox.workspace, "grok-media", "grok-manifest.json"), "utf8"));
+  return manifest.generations.at(-1);
+}
+
+function pick(object, keys) {
+  return Object.fromEntries(keys.map((key) => [key, object[key]]));
+}
+
 test("animate asks for 720p and 6 s by default, with no aspect ratio", async (t) => {
   const sandbox = createSandbox(t);
 
@@ -40,12 +49,31 @@ test("video asks for 720p on its animation step by default", async (t) => {
 
 test("--draft asks for 480p at 6 s", async (t) => {
   const sandbox = createSandbox(t);
+  const runs = [
+    [["animate", "drift", "--image", still(sandbox), "--draft"], [{ tool: "image_to_video" }]],
+    [["video", "a kite at dusk", "--draft"], VIDEO_CALLS]
+  ];
 
-  await generate(sandbox, ["video", "a kite at dusk", "--draft"], VIDEO_CALLS);
+  for (const [args, calls] of runs) {
+    await generate(sandbox, args, calls);
+    assert.match(promptSetting(sandbox, "resolution_name"), /^resolution_name: 480p\b/);
+    assert.match(promptSetting(sandbox, "duration"), /^duration: 6 seconds\b/);
+    assert.ok(!lastPromptLines(sandbox).some((line) => line.includes("--draft")), "--draft must not leak into the prompt");
+  }
+});
+
+test("--resolution takes a bare number as the p-suffixed name", async (t) => {
+  const sandbox = createSandbox(t);
+
+  await generate(sandbox, ["video", "a kite at dusk", "--resolution", "480"], VIDEO_CALLS);
 
   assert.match(promptSetting(sandbox, "resolution_name"), /^resolution_name: 480p\b/);
-  assert.match(promptSetting(sandbox, "duration"), /^duration: 6 seconds\b/);
-  assert.ok(!lastPromptLines(sandbox).some((line) => line.includes("--draft")), "--draft must not leak into the prompt");
+});
+
+test("an option missing its value is refused with a plain message", async (t) => {
+  const sandbox = createSandbox(t);
+
+  await assertRejectedBeforeGrok(sandbox, ["video", "a kite at dusk", "--resolution"], /^Missing value for --resolution\n$/);
 });
 
 test("--draft keeps an explicit --duration", async (t) => {
@@ -70,11 +98,13 @@ test("--draft with an explicit --resolution is refused before calling grok", asy
 test("--resolution 1080p is refused, explaining the CLI stops at 720p", async (t) => {
   const sandbox = createSandbox(t);
 
-  await assertRejectedBeforeGrok(
-    sandbox,
-    ["animate", "drift", "--image", still(sandbox), "--resolution", "1080p"],
-    /--resolution 1080p is not available.*only 480p or 720p.*Grok app, not to the CLI/s
-  );
+  for (const args of [["animate", "drift", "--image", still(sandbox)], ["video", "a kite at dusk"]]) {
+    await assertRejectedBeforeGrok(
+      sandbox,
+      [...args, "--resolution", "1080p"],
+      /--resolution 1080p is not available.*only 480p or 720p.*Grok app, not to the CLI/s
+    );
+  }
 });
 
 test("a duration other than 6 or 10 s is refused for animate and video", async (t) => {
@@ -130,6 +160,12 @@ test("edit --aspect with several images checks image_edit's list", async (t) => 
   assert.equal(promptSetting(sandbox, "aspect_ratio"), "aspect_ratio: 4:3");
 });
 
+test("--draft=false on an image run is not a draft request", async (t) => {
+  const sandbox = createSandbox(t);
+
+  await generate(sandbox, ["image", "a red kite", "--draft=false"], [{ tool: "image_gen" }]);
+});
+
 test("video-only options are refused for image and edit, naming where they apply", async (t) => {
   const sandbox = createSandbox(t);
   const commands = { image: ["image", "a red kite"], edit: ["edit", "make it blue", "--image", still(sandbox)] };
@@ -146,16 +182,12 @@ test("video-only options are refused for image and edit, naming where they apply
   }
 });
 
-function lastGeneration(sandbox) {
-  const manifest = JSON.parse(fs.readFileSync(path.join(sandbox.workspace, "grok-media", "grok-manifest.json"), "utf8"));
-  return manifest.generations.at(-1);
-}
-
 test("the manifest records the duration, resolution and draft a video run asked for", async (t) => {
   const sandbox = createSandbox(t);
 
   await generate(sandbox, ["animate", "drift", "--image", still(sandbox)], [{ tool: "image_to_video" }]);
   assert.deepEqual(pick(lastGeneration(sandbox), ["duration", "resolution", "draft"]), { duration: 6, resolution: "720p", draft: false });
+  assert.ok(!("aspect" in lastGeneration(sandbox)), "animate has no aspect to record");
 
   await generate(sandbox, ["video", "a kite at dusk", "--draft", "--duration", "10", "--aspect", "9:16"], VIDEO_CALLS);
   assert.deepEqual(pick(lastGeneration(sandbox), ["aspect", "duration", "resolution", "draft"]), {
@@ -177,7 +209,3 @@ test("an image run's manifest has no video settings", async (t) => {
     assert.ok(!(key in generation), `${key} should not be recorded for an image`);
   }
 });
-
-function pick(object, keys) {
-  return Object.fromEntries(keys.map((key) => [key, object[key]]));
-}

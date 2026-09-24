@@ -59,7 +59,8 @@ function pickResolution(value) {
   if (value === undefined || value === null) {
     return DEFAULT_VIDEO_RESOLUTION;
   }
-  const resolution = String(value).trim().toLowerCase();
+  const text = String(value).trim().toLowerCase();
+  const resolution = /^\d+$/.test(text) ? `${text}p` : text;
   if (!VIDEO_RESOLUTIONS.includes(resolution)) {
     throw new MediaOptionError(
       `--resolution ${value} is not available. The Grok CLI video tools accept only ${VIDEO_RESOLUTIONS.join(" or ")}; ` +
@@ -102,31 +103,15 @@ export function resolveMediaSpec(command, options = {}) {
       return { aspect: pickAspect(options.aspect, IMAGE_EDIT_ASPECTS, "image_edit") };
 
     case "animate":
-    case "video": {
-      if (command === "animate" && options.aspect !== undefined) {
+      if (options.aspect !== undefined) {
         throw new MediaOptionError(
-          "--aspect does not apply to animate: image_to_video keeps the source image's shape. " +
-            "Crop the still first, or use /grok:ref-video, which takes an aspect ratio."
+          "--aspect does not apply to animate: image_to_video keeps the source image's shape. Crop the still first."
         );
       }
-      const duration = pickSeconds(options.duration, "--duration");
-      if (!IMAGE_TO_VIDEO_DURATIONS.includes(duration)) {
-        throw new MediaOptionError(
-          `--duration ${duration} is not accepted by image_to_video. Use ${IMAGE_TO_VIDEO_DURATIONS.join(" or ")} seconds, ` +
-            `or /grok:ref-video for ${REFERENCE_VIDEO_DURATION.min}–${REFERENCE_VIDEO_DURATION.max} s.`
-        );
-      }
-      const draft = options.draft === true;
-      if (draft && options.resolution !== undefined) {
-        throw new MediaOptionError("--draft already means 480p; drop --resolution, or drop --draft to choose the resolution.");
-      }
-      return {
-        aspect: command === "video" ? pickAspect(options.aspect, IMAGE_GEN_ASPECTS, "image_gen (the opening frame)") : null,
-        duration,
-        resolution: draft ? DRAFT_VIDEO_RESOLUTION : pickResolution(options.resolution),
-        draft
-      };
-    }
+      return pickImageToVideo(options);
+
+    case "video":
+      return { aspect: pickAspect(options.aspect, IMAGE_GEN_ASPECTS, "image_gen (the opening frame)"), ...pickImageToVideo(options) };
 
     case "ref-video": {
       const duration = pickSeconds(options.duration, "--duration");
@@ -146,9 +131,29 @@ export function resolveMediaSpec(command, options = {}) {
   }
 }
 
+/** The `image_to_video` settings shared by animate and video: `{ duration, resolution, draft }`. */
+function pickImageToVideo(options) {
+  const duration = pickSeconds(options.duration, "--duration");
+  if (!IMAGE_TO_VIDEO_DURATIONS.includes(duration)) {
+    throw new MediaOptionError(
+      `--duration ${duration} is not accepted by image_to_video. Use ${IMAGE_TO_VIDEO_DURATIONS.join(" or ")} seconds.`
+    );
+  }
+  const draft = options.draft === true;
+  if (draft && options.resolution !== undefined) {
+    throw new MediaOptionError(
+      `--draft already means ${DRAFT_VIDEO_RESOLUTION}; drop --resolution, or drop --draft to choose the resolution.`
+    );
+  }
+  return { duration, resolution: draft ? DRAFT_VIDEO_RESOLUTION : pickResolution(options.resolution), draft };
+}
+
 /** An image run would silently ignore these; say so rather than let the user think they applied. */
 function rejectVideoOptions(command, options) {
-  for (const option of ["draft", "resolution", "duration"]) {
+  if (options.draft === true) {
+    throw new MediaOptionError(`--draft does not apply to ${command}; it is for animate and video.`);
+  }
+  for (const option of ["resolution", "duration"]) {
     if (options[option] !== undefined) {
       throw new MediaOptionError(`--${option} does not apply to ${command}; it is for animate and video.`);
     }
