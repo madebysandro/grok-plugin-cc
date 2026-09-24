@@ -2,7 +2,7 @@
 
 Every live Grok run made while building Round 1 of the fork. The spec allows at most 12 generations for the round (`docs/spec-paridade-higgsfield.md` §6), always in the smallest configuration. No credentials or account details are recorded here.
 
-Grok CLI 1.0.41 (4220f3b224a6), macOS arm64. Generations used so far: **2 of 12**.
+Grok CLI 1.0.41 (4220f3b224a6), macOS arm64. Generations used so far: **4 of 12**.
 
 ## Generations
 
@@ -10,8 +10,12 @@ Grok CLI 1.0.41 (4220f3b224a6), macOS arm64. Generations used so far: **2 of 12*
 | --- | --- | --- | --- | --- | --- | --- |
 | 1 | 2026-09-24 23:26 | #3, before isolation (companion at `7f7a202`) | `image "a red apple on a white table" --aspect 1:1` | ok · 23.8 s · 2 turns · input tokens 28,306 uncached + 29,952 cache read · 58,596 total · $0.0250 · 15 tools offered | 1024×1024 JPEG, 178,527 B | `01a0d5be-4ca6-7493-b9bf-3193dbb3a3b6` |
 | 2 | 2026-09-24 23:29 | #3, after isolation | same | ok · 14.7 s · 2 turns · input tokens 21,826 uncached + 4,224 cache read · 26,141 total · $0.0157 · only `image_gen` offered | 1024×1024 JPEG, 186,408 B | `dc85367b-7d8f-4372-8f99-3bb95c91ec76` |
+| 3 | 2026-09-24 23:46 | #4, `animate` with no video flags | `animate "slow camera push-in across the desk; steam rises from the mug and the monitor glow flickers softly" --image hero.jpg` (`hero.jpg` is `docs/hero.jpg`, 1280×720) | ok · 52.9 s · $0.0162 · `image_to_video` received `resolution_name: 720p`, `duration: 6` and the prompt verbatim · only `image_to_video` offered | 1280×720 H.264 24 fps, 6.04 s, AAC audio, 3,525,655 B | `41a276ef-61bb-4bb1-987d-775d7de1e2af` |
+| 4 | 2026-09-24 23:47 | #4, `video --draft` | `video "a red paper kite drifting over a quiet beach at dusk" --aspect 16:9 --draft` | ok · 45.4 s · $0.0268 · `image_gen` received `aspect_ratio: 16:9`; `image_to_video` received `resolution_name: 480p`, `duration: 6` · only those two tools offered · manifest records `resolution: 480p`, `duration: 6`, `draft: true` | still 1280×720 JPEG, 221,227 B · clip 736×400 H.264 24 fps, 6.04 s, AAC audio, 1,268,467 B | `f83595e1-da3e-40d0-a022-985af7980344` |
 
 Session 2's id is the UUID the plugin generated, which confirms Grok accepted `--session-id`. The offered tools come from each session's `tool_definitions.json`.
+
+Runs 3 and 4 used the companion at `0e206ef` (isolation from #3 included) in a scratch workspace. Dimensions, codecs and durations are from `ffprobe`; the arguments each tool received are from the session's `updates.jsonl`. Grok's 480p tier is not 480 lines: from a 1280×720 still, run 4's clip came out 736×400 (1.84:1, slightly wider than the still). Older 480p clips on this machine are 848×480 and, for square stills, 544×544; their sources are gone, so what decides the size is not known. Every clip also carries a second, MJPEG video stream (a cover picture) next to H.264 and AAC.
 
 ## Checks that generate nothing
 
