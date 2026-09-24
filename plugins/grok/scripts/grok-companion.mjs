@@ -28,6 +28,7 @@ import {
   resolveSessionDir
 } from "./lib/session.mjs";
 import { collectAssets, resolveOutDir, slugify, writeManifest } from "./lib/assets.mjs";
+import { MediaOptionError, resolveMediaSpec } from "./lib/media-spec.mjs";
 import { resolveImageArg } from "./lib/refs.mjs";
 import {
   findJob,
@@ -48,8 +49,8 @@ import {
 
 const COMMANDS = new Set(["setup", "image", "edit", "video", "animate", "ask", "status", "result", "cancel", "help"]);
 
-const SHARED_VALUE_OPTIONS = ["out", "aspect", "count", "name", "model", "effort", "timeout", "duration", "job"];
-const SHARED_BOOLEAN_OPTIONS = ["json", "verbatim", "raw", "keep-session", "read-only", "write"];
+const SHARED_VALUE_OPTIONS = ["out", "aspect", "count", "name", "model", "effort", "timeout", "duration", "resolution", "job"];
+const SHARED_BOOLEAN_OPTIONS = ["json", "verbatim", "raw", "keep-session", "read-only", "write", "draft"];
 
 const ZDR_HINT = [
   "Cause: this xAI account has Zero Data Retention enabled",
@@ -114,14 +115,26 @@ async function runMediaCommand({ command, options, positionals, cwd, promptBuild
     fail(`No prompt given. Usage: /grok:${command} <prompt> [--out DIR] [--aspect 16:9]`);
   }
 
+  // Options Grok would reject are refused here, before a job exists or quota is spent.
+  let spec;
+  try {
+    spec = resolveMediaSpec(command, options);
+  } catch (error) {
+    if (!(error instanceof MediaOptionError)) {
+      throw error;
+    }
+    fail(error.message);
+  }
+
   const outDir = resolveOutDir(options.out, cwd, defaultOutDir);
   const count = parseCount(options.count, { fallback: 1, min: 1, max: 8 });
   const timeoutMs = parseCount(options.timeout, { fallback: extra.defaultTimeoutSeconds ?? 900, min: 30, max: 3600 }) * 1000;
 
   const grokPrompt = promptBuilder({
     prompt,
-    aspect: options.aspect ?? null,
-    duration: options.duration ?? null,
+    aspect: spec.aspect ?? null,
+    duration: spec.duration ?? null,
+    resolution: spec.resolution ?? null,
     count,
     verbatim: options.verbatim !== false,
     ...extra.promptExtras
@@ -191,7 +204,7 @@ async function runMediaCommand({ command, options, positionals, cwd, promptBuild
     writeManifest({
       outDir,
       entries: saved,
-      meta: { command, requestedPrompt: prompt, sessionId, aspect: options.aspect ?? null, costUsd: Number.isFinite(costUsd) ? costUsd : null }
+      meta: { command, requestedPrompt: prompt, sessionId, ...spec, costUsd: Number.isFinite(costUsd) ? costUsd : null }
     });
 
     upsertJob(cwd, { id: jobId, status: "completed", assetCount: saved.length, sessionId, files: saved.map((asset) => asset.file) });
@@ -251,7 +264,7 @@ async function runMediaCommand({ command, options, positionals, cwd, promptBuild
     writeManifest({
       outDir,
       entries: saved,
-      meta: { command, requestedPrompt: prompt, sessionId, partial: true, costUsd: Number.isFinite(costUsd) ? costUsd : null }
+      meta: { command, requestedPrompt: prompt, sessionId, ...spec, partial: true, costUsd: Number.isFinite(costUsd) ? costUsd : null }
     });
   }
 
@@ -489,7 +502,9 @@ function commandHelp() {
       "",
       "Common options:",
       "  --out DIR        Output directory (default: grok-media/)",
-      "  --aspect RATIO   1:1, 16:9, 9:16, 4:3, 3:4",
+      "  --aspect RATIO   image, video: 1:1, 16:9, 9:16, 3:2, 2:3, auto",
+      "                   edit, with 2+ images only: also 4:3, 3:4, 2:1, 1:2, 19.5:9, 9:19.5, 20:9, 9:20",
+      "                   (animate keeps the source image's shape)",
       "  --count N        Number of images (1-8)",
       "  --name SLUG      Filename stem",
       "  --model M        Grok model id",
@@ -497,6 +512,12 @@ function commandHelp() {
       "  --timeout SECS   Run timeout",
       "  --json           Machine-readable output",
       "  --verbatim=false Let Grok rewrite the prompt instead of passing it through",
+      "",
+      "Video options (animate, video):",
+      "  --duration SECS  6 or 10 (default 6)",
+      "  --resolution R   480p or 720p (default 720p; the CLI offers nothing higher)",
+      "  --draft          A cheap 480p try-out; 6 s unless --duration is given,",
+      "                   and not combinable with --resolution",
       "",
       "Input images (--image) take a path, a data: URL, or an earlier result:",
       "  @last            The last file the newest job in this workspace saved",

@@ -12,6 +12,7 @@ Raw slash-command arguments:
 Argument handling:
 
 - `--image` is required and repeatable; each one is a path to a source image, a `data:` URL, `@last` (the last file generated in this workspace), `job:<id>` (that job's first file) or `job:<id>#N` (its Nth file).
+- `--aspect` only applies with 2 or more `--image` inputs (1:1, 16:9, 9:16, 4:3, 3:4, 3:2, 2:3, 2:1, 1:2, 19.5:9, 9:19.5, 20:9, 9:20, auto); a single-image edit keeps the source's shape.
 - If the user described an image but gave no `--image`, find the file first (`Glob`) and confirm the path with them rather than guessing.
 - Pass the instruction through verbatim. Describe only what changes — `image_edit` preserves everything the instruction does not mention, so extra scene description works against the edit.
 - Use this, not `/grok:image`, whenever there is a source image: re-generating from scratch will not preserve the subject.

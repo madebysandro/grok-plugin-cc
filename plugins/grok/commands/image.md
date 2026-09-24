@@ -14,6 +14,7 @@ Argument handling:
 - Pass the user's arguments through unchanged. Do not rewrite, translate, expand, or "improve" the prompt — the companion sends it to `image_gen` verbatim on purpose, and rewriting it silently discards the user's art direction.
 - If the user gave no prompt at all, ask for one instead of inventing a subject.
 - `--count` above 1 produces variations of the same subject.
+- `--aspect` is one of 1:1, 16:9, 9:16, 3:2, 2:3, auto; anything else is refused before Grok runs.
 - If the user wants Grok to elaborate on a terse prompt, they can pass `--verbatim=false`.
 
 Execution:

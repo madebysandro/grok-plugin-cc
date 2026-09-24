@@ -26,6 +26,9 @@ export const VIDEO_RESOLUTIONS = Object.freeze(["480p", "720p"]);
 /** The tools default to 480p when no resolution is passed; ask for the best one. */
 export const DEFAULT_VIDEO_RESOLUTION = "720p";
 
+/** `--draft`: the cheapest clip worth looking at, to try an idea before spending on it. */
+export const DRAFT_VIDEO_RESOLUTION = "480p";
+
 export const IMAGE_TO_VIDEO_DURATIONS = Object.freeze([6, 10]);
 export const DEFAULT_VIDEO_DURATION = 6;
 export const REFERENCE_VIDEO_DURATION = Object.freeze({ min: 1, max: 15 });
@@ -80,15 +83,22 @@ function pickSeconds(value, flag) {
 /**
  * Validate and normalise one command's generation options.
  *
- * Returns `{ aspect, duration, resolution }` with only the fields that command
+ * Returns `{ aspect, duration, resolution, draft }` with only the fields that command
  * uses; throws `MediaOptionError` with a message fit to show the user.
  */
 export function resolveMediaSpec(command, options = {}) {
   switch (command) {
     case "image":
+      rejectVideoOptions(command, options);
       return { aspect: pickAspect(options.aspect, IMAGE_GEN_ASPECTS, "image_gen") };
 
     case "edit":
+      rejectVideoOptions(command, options);
+      if (options.aspect !== undefined && asList(options.image).length < 2) {
+        throw new MediaOptionError(
+          "--aspect applies to edit only with 2 or more --image inputs; a single-image edit keeps the source image's shape."
+        );
+      }
       return { aspect: pickAspect(options.aspect, IMAGE_EDIT_ASPECTS, "image_edit") };
 
     case "animate":
@@ -106,10 +116,15 @@ export function resolveMediaSpec(command, options = {}) {
             `or /grok:ref-video for ${REFERENCE_VIDEO_DURATION.min}–${REFERENCE_VIDEO_DURATION.max} s.`
         );
       }
+      const draft = options.draft === true;
+      if (draft && options.resolution !== undefined) {
+        throw new MediaOptionError("--draft already means 480p; drop --resolution, or drop --draft to choose the resolution.");
+      }
       return {
         aspect: command === "video" ? pickAspect(options.aspect, IMAGE_GEN_ASPECTS, "image_gen (the opening frame)") : null,
         duration,
-        resolution: pickResolution(options.resolution)
+        resolution: draft ? DRAFT_VIDEO_RESOLUTION : pickResolution(options.resolution),
+        draft
       };
     }
 
@@ -128,6 +143,15 @@ export function resolveMediaSpec(command, options = {}) {
 
     default:
       return {};
+  }
+}
+
+/** An image run would silently ignore these; say so rather than let the user think they applied. */
+function rejectVideoOptions(command, options) {
+  for (const option of ["draft", "resolution", "duration"]) {
+    if (options[option] !== undefined) {
+      throw new MediaOptionError(`--${option} does not apply to ${command}; it is for animate and video.`);
+    }
   }
 }
 
