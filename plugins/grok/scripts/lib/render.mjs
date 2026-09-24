@@ -40,7 +40,7 @@ export function formatCost(usd) {
 }
 
 /** The success report for a media run. */
-export function renderMediaResult({ title, saved, outDir, elapsedMs, costUsd, sessionId, notes = [] }) {
+export function renderMediaResult({ title, saved, outDir, elapsedMs, costUsd, sessionId, jobId, notes = [] }) {
   const lines = [];
 
   lines.push(`${title}: ${saved.length} file${saved.length === 1 ? "" : "s"}`);
@@ -67,6 +67,9 @@ export function renderMediaResult({ title, saved, outDir, elapsedMs, costUsd, se
   }
   if (sessionId) {
     meta.push(`session ${sessionId}`);
+  }
+  if (jobId) {
+    meta.push(`job ${jobId}`);
   }
   if (meta.length > 0) {
     lines.push(meta.join(" · "));

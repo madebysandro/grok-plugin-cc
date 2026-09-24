@@ -27,7 +27,8 @@ import {
   readSessionUpdates,
   resolveSessionDir
 } from "./lib/session.mjs";
-import { collectAssets, resolveInputImage, resolveOutDir, slugify, writeManifest } from "./lib/assets.mjs";
+import { collectAssets, resolveOutDir, slugify, writeManifest } from "./lib/assets.mjs";
+import { resolveImageInput } from "./lib/refs.mjs";
 import {
   findJob,
   generateJobId,
@@ -205,8 +206,8 @@ async function runMediaCommand({ command, options, positionals, cwd, promptBuild
 
     emit({
       json,
-      payload: { ok: true, command, outDir, sessionId, elapsedMs, costUsd: Number.isFinite(costUsd) ? costUsd : null, assets: saved, failedCalls, missing },
-      text: renderMediaResult({ title, saved, outDir, elapsedMs, costUsd, sessionId, notes })
+      payload: { ok: true, command, jobId, outDir, sessionId, elapsedMs, costUsd: Number.isFinite(costUsd) ? costUsd : null, assets: saved, failedCalls, missing },
+      text: renderMediaResult({ title, saved, outDir, elapsedMs, costUsd, sessionId, jobId, notes })
     });
     return;
   }
@@ -495,7 +496,12 @@ function commandHelp() {
       "  --effort LEVEL   low | medium | high",
       "  --timeout SECS   Run timeout",
       "  --json           Machine-readable output",
-      "  --verbatim=false Let Grok rewrite the prompt instead of passing it through"
+      "  --verbatim=false Let Grok rewrite the prompt instead of passing it through",
+      "",
+      "Input images (--image) take a path, a data: URL, or an earlier result:",
+      "  @last            The last file the newest job in this workspace saved",
+      "  job:<id>         That job's first file (ids are in the output and in status)",
+      "  job:<id>#N       That job's Nth file, counting from 1"
     ].join("\n") + "\n"
   );
 }
@@ -547,7 +553,7 @@ async function main() {
       }
       let images;
       try {
-        images = rawImages.map((image) => resolveInputImage(image, cwd));
+        images = rawImages.map((image) => resolveImageInput(image, cwd));
       } catch (error) {
         fail(String(error?.message ?? error));
       }
@@ -589,7 +595,7 @@ async function main() {
       }
       let image;
       try {
-        image = resolveInputImage(rawImage, cwd);
+        image = resolveImageInput(rawImage, cwd);
       } catch (error) {
         fail(String(error?.message ?? error));
       }
