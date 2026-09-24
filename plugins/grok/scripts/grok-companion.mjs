@@ -29,13 +29,16 @@ import {
 } from "./lib/session.mjs";
 import { collectAssets, resolveOutDir, slugify, writeManifest } from "./lib/assets.mjs";
 import {
+  DEFAULT_IMAGE_MODEL,
   DEFAULT_VIDEO_DURATION,
   DEFAULT_VIDEO_RESOLUTION,
   DRAFT_VIDEO_RESOLUTION,
   IMAGE_EDIT_ASPECTS,
   IMAGE_GEN_ASPECTS,
+  IMAGE_MODELS,
   IMAGE_TO_VIDEO_DURATIONS,
   MediaOptionError,
+  SERVER_IMAGE_MODEL,
   VIDEO_RESOLUTIONS,
   resolveMediaSpec
 } from "./lib/media-spec.mjs";
@@ -60,7 +63,7 @@ import {
 const COMMANDS = new Set(["setup", "image", "edit", "video", "animate", "ask", "status", "result", "cancel", "help"]);
 const MEDIA_COMMANDS = new Set(Object.keys(MEDIA_TOOL_ALLOWLIST));
 
-const SHARED_VALUE_OPTIONS = ["out", "aspect", "count", "name", "model", "effort", "timeout", "duration", "resolution", "job"];
+const SHARED_VALUE_OPTIONS = ["out", "aspect", "count", "name", "model", "effort", "timeout", "duration", "resolution", "image-model", "job"];
 const SHARED_BOOLEAN_OPTIONS = ["json", "verbatim", "raw", "keep-session", "read-only", "write", "draft"];
 
 const ZDR_HINT = [
@@ -174,7 +177,8 @@ async function runMediaCommand({ command, options, positionals, cwd, promptBuild
       cwd,
       model: options.model,
       effort: options.effort,
-      maxTurns: extra.maxTurns ?? 8
+      maxTurns: extra.maxTurns ?? 8,
+      imageModel: spec.imageModel
     }),
     timeoutMs,
     onStderr: (chunk) => {
@@ -526,6 +530,10 @@ function commandHelp() {
       "  --timeout SECS   Run timeout",
       "  --json           Machine-readable output",
       "  --verbatim=false Let Grok rewrite the prompt instead of passing it through",
+      "",
+      "Image model (image, edit, and video's opening frame):",
+      `  --image-model M  ${Object.keys(IMAGE_MODELS).join(", ")} or ${SERVER_IMAGE_MODEL} (default ${DEFAULT_IMAGE_MODEL};`,
+      "                   server passes no override, so xAI's current default applies)",
       "",
       "Video options (animate, video):",
       `  --duration SECS  ${IMAGE_TO_VIDEO_DURATIONS.join(" or ")} (default ${DEFAULT_VIDEO_DURATION})`,

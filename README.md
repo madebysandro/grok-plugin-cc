@@ -95,6 +95,7 @@ Both of these happened to render their lettering cleanly. Do not count on that �
 | `--out DIR` | Output directory (default `grok-media/`) |
 | `--aspect RATIO` | `image`/`video`: `1:1`, `16:9`, `9:16`, `3:2`, `2:3`, `auto`; `edit` takes a wider set, only with 2+ images; `animate` keeps the source's shape |
 | `--count N` | Number of images, 1–8 |
+| `--image-model M` | `image`/`edit`/`video`: `2.0` (default, `grok-imagine-image-2.0`), `quality`, `standard`, or `server` for xAI's current default |
 | `--name SLUG` | Filename stem |
 | `--image PATH` | Source image for `edit`/`animate`; repeatable for `edit` |
 | `--model` · `--effort` | Grok model and reasoning effort |

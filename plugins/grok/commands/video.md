@@ -1,6 +1,6 @@
 ---
 description: Generate a video with Grok (image_gen then image_to_video)
-argument-hint: '<prompt> [--out DIR] [--aspect 16:9] [--duration 6|10] [--resolution 480p|720p] [--draft] [--background]'
+argument-hint: '<prompt> [--out DIR] [--aspect 16:9] [--duration 6|10] [--resolution 480p|720p] [--draft] [--image-model 2.0|quality|standard|server] [--background]'
 allowed-tools: Bash(node:*), Read
 ---
 
@@ -17,6 +17,7 @@ Argument handling:
 
 - Pass the prompt through verbatim.
 - `--aspect` shapes the opening frame (1:1, 16:9, 9:16, 3:2, 2:3, auto); the clip keeps that shape.
+- `--image-model` picks the model of the opening frame, as in `/grok:image`: `2.0` (default), `quality`, `standard` or `server`.
 - `--duration` is 6 or 10 seconds (default 6). `--resolution` is 480p or 720p (default 720p) — the CLI goes no higher; 1080p in a Grok plan applies to the Grok app only.
 - `--draft` makes a cheap 480p try-out, at 6 s unless `--duration` is given. It cannot be combined with `--resolution`.
 - Invalid values are refused before Grok runs, with a message saying what to use instead; relay it and fix the flag rather than retrying as-is.

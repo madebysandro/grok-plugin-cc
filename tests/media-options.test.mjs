@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import test from "node:test";
 
-import { assertRejectedBeforeGrok, generate, lastPromptLines } from "./companion-assertions.mjs";
+import { assertRejectedBeforeGrok, generate, lastGeneration, lastPromptLines } from "./companion-assertions.mjs";
 import { createSandbox } from "./companion-harness.mjs";
 
 /** A still in the workspace for `animate` to work on. */
@@ -19,11 +19,6 @@ function promptSetting(sandbox, key) {
 }
 
 const VIDEO_CALLS = [{ tool: "image_gen" }, { tool: "image_to_video" }];
-
-function lastGeneration(sandbox) {
-  const manifest = JSON.parse(fs.readFileSync(path.join(sandbox.workspace, "grok-media", "grok-manifest.json"), "utf8"));
-  return manifest.generations.at(-1);
-}
 
 function pick(object, keys) {
   return Object.fromEntries(keys.map((key) => [key, object[key]]));
