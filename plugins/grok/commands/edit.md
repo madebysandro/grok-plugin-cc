@@ -36,5 +36,5 @@ Output rules:
 
 - Relay the companion's output, then `Read` each saved file so the user can see the result.
 - The source image is never modified; edits are written as new files.
-- To iterate, run `/grok:edit` again with `--image @last` rather than re-running the original edit.
+- To iterate, run `/grok:edit` again against the newest output rather than re-running the original edit.
 - If the run failed, relay the reason verbatim and do not retry automatically.

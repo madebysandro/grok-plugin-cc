@@ -28,7 +28,7 @@ import {
   resolveSessionDir
 } from "./lib/session.mjs";
 import { collectAssets, resolveOutDir, slugify, writeManifest } from "./lib/assets.mjs";
-import { resolveImageInput } from "./lib/refs.mjs";
+import { resolveImageArg } from "./lib/refs.mjs";
 import {
   findJob,
   generateJobId,
@@ -268,7 +268,7 @@ async function runMediaCommand({ command, options, positionals, cwd, promptBuild
   if (json) {
     emit({
       json,
-      payload: { ok: false, command, reason, hint, sessionId, elapsedMs, failedCalls, agentMessage, zeroDataRetentionBlocked: zdrBlocked, partialAssets: saved, outDir },
+      payload: { ok: false, command, jobId, reason, hint, sessionId, elapsedMs, failedCalls, agentMessage, zeroDataRetentionBlocked: zdrBlocked, partialAssets: saved, outDir },
       text
     });
   } else {
@@ -553,7 +553,7 @@ async function main() {
       }
       let images;
       try {
-        images = rawImages.map((image) => resolveImageInput(image, cwd));
+        images = rawImages.map((image) => resolveImageArg(image, cwd));
       } catch (error) {
         fail(String(error?.message ?? error));
       }
@@ -595,7 +595,7 @@ async function main() {
       }
       let image;
       try {
-        image = resolveImageInput(rawImage, cwd);
+        image = resolveImageArg(rawImage, cwd);
       } catch (error) {
         fail(String(error?.message ?? error));
       }

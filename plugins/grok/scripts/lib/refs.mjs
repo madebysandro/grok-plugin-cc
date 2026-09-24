@@ -17,26 +17,30 @@ import path from "node:path";
 import { resolveInputImage } from "./assets.mjs";
 import { findJob, listJobs } from "./state.mjs";
 
-const JOB_REF = /^job:(.+?)(?:#(\d+))?$/;
+const JOB_PREFIX = "job:";
 const IMAGE_EXTENSIONS = new Set([".jpg", ".jpeg", ".png", ".webp", ".gif"]);
 
-/** Resolve an image input: a path, a `data:` URL, or a reference to an earlier result. */
-export function resolveImageInput(raw, cwd) {
+/** Resolve an `--image` value: a path, a `data:` URL, or a reference to an earlier result. */
+export function resolveImageArg(raw, cwd) {
   const value = String(raw ?? "").trim();
   const ref = resolveResultRef(value, cwd);
   if (!ref) {
     return resolveInputImage(value, cwd);
   }
 
-  if (!IMAGE_EXTENSIONS.has(path.extname(ref.file).toLowerCase())) {
-    const stillIndex = ref.job.files.findIndex((file) => IMAGE_EXTENSIONS.has(path.extname(file).toLowerCase()));
+  if (!isImageFile(ref.file)) {
+    const stillIndex = ref.job.files.findIndex(isImageFile);
     const hint =
       stillIndex === -1
         ? "That job produced no still image."
         : `For the job's still, use job:${ref.job.id}#${stillIndex + 1}.`;
-    throw new Error(`${value} is ${ref.file} from job "${ref.job.id}", which is not an image. ${hint}`);
+    throw new Error(`${value}: ${ref.file} (job "${ref.job.id}") is not an image. ${hint}`);
   }
   return ref.file;
+}
+
+function isImageFile(file) {
+  return IMAGE_EXTENSIONS.has(path.extname(file).toLowerCase());
 }
 
 /** `{ job, file }` for `@last` / `job:<id>[#N]`, or null when `value` is not a reference. */
@@ -49,20 +53,30 @@ function resolveResultRef(value, cwd) {
     return existingFile(value, job, job.files.at(-1));
   }
 
-  const jobRef = JOB_REF.exec(value);
-  if (!jobRef) {
+  if (!value.startsWith(JOB_PREFIX)) {
     return null;
   }
 
-  const job = findJob(cwd, jobRef[1]);
+  const body = value.slice(JOB_PREFIX.length);
+  const hash = body.lastIndexOf("#");
+  const jobId = hash === -1 ? body : body.slice(0, hash);
+  const number = hash === -1 ? "1" : body.slice(hash + 1);
+  if (!jobId) {
+    throw new Error(`${value}: no job id given; use job:<id> or job:<id>#N.`);
+  }
+  if (!/^\d+$/.test(number)) {
+    throw new Error(`${value}: the file number after # must be a whole number, e.g. job:${jobId}#1.`);
+  }
+
+  const job = findJob(cwd, jobId);
   if (!job) {
-    throw new Error(`${value}: no Grok job with id "${jobRef[1]}" in this workspace. Run /grok:status to list recent jobs.`);
+    throw new Error(`${value}: no Grok job with id "${jobId}" in this workspace. Run /grok:status to list recent jobs.`);
   }
   const files = job.files ?? [];
   if (files.length === 0) {
     throw new Error(`${value}: job "${job.id}" (${job.command}, ${job.status}) has no files.`);
   }
-  const position = jobRef[2] === undefined ? 1 : Number(jobRef[2]);
+  const position = Number(number);
   if (position < 1 || position > files.length) {
     throw new Error(`${value}: job "${job.id}" has ${files.length} file${files.length === 1 ? "" : "s"}; use #1 to #${files.length}.`);
   }
