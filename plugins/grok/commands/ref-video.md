@@ -17,7 +17,7 @@ Inputs — give at least one:
 - `--voice ID` (repeatable, up to 3): a preset voice for someone to speak in, e.g. `ara`, `eve`, `leo`, `rex`. Write the line to be spoken into the prompt, in the language it should be spoken in. The plugin does not know the full roster: an unknown id is refused by Grok, with the list of voices, which the output relays.
 - `--loop`: use the one `--image` as both the first and the last frame, for a clip that repeats seamlessly. It is not sent as a reference image. The prompt gets "Locked camera, seamless loop." appended. Not combinable with `--first-frame` / `--last-frame`.
 
-Every file input takes a path, `@last` (the last file generated in this workspace), `job:<id>` (that job's first file) or `job:<id>#N` (its Nth file). For a keyframe, put the reference before the time: `@last@2`, `job:abc#2@4`.
+Every file input takes a path, `@last` (the last file the plugin saved in this workspace, by a generation or a local tool), `job:<id>` (that job's first file) or `job:<id>#N` (its Nth file). For a keyframe, put the reference before the time: `@last@2`, `job:abc#2@4`.
 
 Referring to inputs in the prompt:
 

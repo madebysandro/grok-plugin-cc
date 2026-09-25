@@ -1,54 +1,81 @@
 ---
 name: grok-media-results
-description: How to verify and report the output of a Grok media run — checking the file actually matches the brief, what can and cannot be claimed about a video, handling partial and failed runs, and iterating without wasting money. Load after any /grok:image, /grok:edit, /grok:video, or /grok:animate run.
+description: How to verify and report the output of a Grok media run — checking an image matches the brief, checking a video with ffprobe and extracted frames, what can and cannot be claimed about a clip, handling refusals, partial and failed runs, and iterating without wasting quota. Load after any /grok:image, /grok:edit, /grok:animate, /grok:video or /grok:ref-video run, and after the local tools (/grok:last-frame, /grok:concat, /grok:mute, /grok:reframe, /grok:overlay, /grok:cutout, /grok:split).
 ---
 
 # Reporting Grok media results
 
 A generation that produced a file is not the same as a generation that worked.
 
-## Verify before reporting
+## Verify an image before reporting
 
-For images, `Read` each saved file and actually look at it. Check:
+`Read` each saved image and actually look at it. Check:
 
 - The subject is what was asked for, not an adjacent thing.
 - The composition and aspect ratio match the request.
-- Any text in the frame is spelled correctly — this is where image models fail most often.
+- Any text in the frame is spelled correctly, accents included. Image 2.0 (the default model) gets short text right far more often than older models, but look anyway; if it is wrong, lay the text on with `/grok:overlay` instead of regenerating.
 - For an edit: the requested change happened, and nothing else drifted.
+- For a cut-out or a split: the edges are clean and no item was clipped.
 
-Then report what you saw. If two of four images missed the brief, say which two and how. A user who is told "generated 4 images" and then opens four wrong ones has been given a worse answer than one who was told the truth.
+Then report what you saw. If two of four images missed the brief, say which two and how.
 
-For video, you cannot watch the file. Report the path and size, and say nothing about the motion, pacing, or quality — you do not know. Inventing a description of a clip you cannot see is fabrication, whatever it is dressed up as.
+## Verify a video without watching it
+
+You cannot watch a clip, but you can measure it and look at its frames. Every Grok clip has three streams: H.264 video, AAC audio, and an MJPEG **cover picture** stored as a second video stream. Always address the real video as `v:0` (or `V:0`); the cover is not a frame of the clip.
+
+```bash
+ffprobe -v error -select_streams v:0 -show_entries stream=width,height,r_frame_rate:format=duration -of default=nw=1 clip.mp4
+ffprobe -v error -select_streams a:0 -show_entries stream=codec_name -of csv=p=0 clip.mp4   # empty after /grok:mute
+```
+
+What to expect:
+
+- 720p is a real 1280×720 for a 16:9 still.
+- The 480p tier (`--draft`) is **not** 480 lines: `animate`/`video` gave 736×400 from a 1280×720 still, `ref-video` 848×480 for 16:9. Report the size ffprobe gives, not "480p".
+- Duration: 6 or 10 s for `animate`/`video`, what was asked (1–15 s) for `ref-video`; the file is a few hundredths of a second longer.
+- An audio stream, unless the clip was muted.
+
+To see what a clip shows, extract frames from the main stream and `Read` them:
+
+```bash
+ffmpeg -v error -y -ss 0 -i clip.mp4 -map 0:v:0 -frames:v 1 first.png
+ffmpeg -v error -y -ss 3 -i clip.mp4 -map 0:v:0 -frames:v 1 middle.png
+```
+
+(`/grok:last-frame` gives the real last frame, and records it as a job.) From frames you may say what the clip *shows* at those moments — the subject, the setting, whether a pinned first or last frame matches its image, whether a `--loop` clip starts and ends on the same picture. You may not say anything about the motion, the pacing, or what is said: you did not see or hear it. A voice clip's speech needs the user's ears; ask them.
 
 ## Reading the outcome
 
-The companion exits `0` only when the run produced what was asked for. Exit `2` means something is wrong, and the output says what.
+- **Exit 1 — refused.** An option or input was wrong, and the message says how to fix it; nothing ran and no quota was spent, so fix and re-run. (A message starting `grok-companion failed:` is an internal error instead: relay it, it is a bug.)
+- **Exit 0 — completed.** Files listed, each with its size; the summary line ends with the job id (`--json` gives `jobId`).
+- **Exit 2 — partial or failed.** *Partial*: something was produced but not what was asked — most often a `/grok:video` whose still generated and whose animation failed; the still is kept and labelled intermediate. Never present it as the finished video. *Failed*: no usable output; the reason is stated. Relay it rather than paraphrasing.
 
-- **Completed** — files listed, each with its size and the prompt that made it.
-- **Partial** — some files were produced but the run did not finish. Most often a `/grok:video` run whose still frame generated and whose animation step failed. The still is kept and labelled as intermediate. Never present it as the finished video.
-- **Failed** — no usable output. The reason is stated; relay it rather than paraphrasing.
+Notes may follow a result: a brand font that did not load (`overlay`), or — once per output folder in a workspace — that the folder sits inside a git repository that does not ignore it. Relay them; the plugin never edits `.gitignore` itself.
 
 ## Failure modes worth recognising
 
-**Zero Data Retention blocking video.** `HTTP 400 ... Zero Data Retention teams must provide output.upload_url`. This is an xAI account setting, not a prompt problem. Retrying fails identically. Relay the explanation and stop — images still work fine, so say that too instead of implying the plugin is broken.
+**Zero Data Retention blocking video.** `HTTP 400 ... Zero Data Retention teams must provide output.upload_url`. An xAI account setting, not a prompt problem; every retry fails the same way. Relay it and stop — images still work, so say that too.
 
 **Moderation block.** Stop. Tell the user what was blocked and offer a different direction. Do not reword the prompt to evade the filter.
 
-**Grok never called the tool.** Usually means the prompt read as a question rather than a generation request. Rephrase as a direct instruction.
+**Grok never called the tool.** Usually the prompt read as a question rather than a generation request. Rephrase it as a direct instruction.
 
-**Timeout.** Re-run with `--timeout <seconds>`. Video runs legitimately take minutes.
+**Unknown voice.** `ref-video --voice` with an id Grok does not know fails at the tool, which lists the valid voices; the output relays them.
 
-## Iterating without burning money
+**Timeout.** Re-run with `--timeout <seconds>` (30–3600). Video runs legitimately take a minute or more. A foreground Bash call stops at 10 minutes whatever `--timeout` says, so a run allowed longer than that must go in the background — otherwise Bash kills it and the job ends up `interrupted` with no reason.
 
-Every attempt is billed — roughly $0.13–$0.18 per image, most of it agent tokens.
+## Iterating without burning quota
+
+Every generation spends the plan's weekly pool (shared by Chat, Imagine, Voice and Build). An image takes 15–35 s, a clip 45–65 s.
 
 - **Never retry automatically.** A failed run is a decision point for the user, not a loop for you.
 - **Edit, do not regenerate.** One detail wrong means `/grok:edit` on the existing file. Regenerating rolls a fresh subject, since there is no seed.
-- **Do not generate extras.** Producing "a few more options" nobody asked for spends the user's money on your own initiative.
+- **Draft first for sequences.** `--draft` (the 480p tier; 6 s unless `--duration` is given) for every clip; re-run only the approved ones at 720p.
+- **Do not generate extras** nobody asked for.
 - **Check `/grok:setup` first** when video is part of a plan, before spending anything on the stills leading up to it.
 
 ## Where files go
 
-Assets are copied out of Grok's session folder into the output directory (default `grok-media/`), named from the prompt or `--name`, numbered, and never overwritten — a repeat run appends `-2`, `-3`.
+Everything is saved into the output directory (default `grok-media/`), named from the prompt (a generation), the input file (a local tool: `-muted`, `-concat`, `-overlay`…) or `--name`, numbered, and never overwritten — a repeat run appends `-2`, `-3`. Each run is a job, so `@last` and `job:<id>` pick its files up in the next command.
 
-`grok-manifest.json` in that directory records every generation: the prompt actually sent to the tool, the aspect ratio, the tool used, the session id, and the cost. When a user asks how an image was made, read the manifest rather than guessing.
+`grok-manifest.json` in that directory records every run that saved a file: the command, the prompt actually sent to the tool, the aspect ratio, the image model (`imageModel`), the duration, resolution and whether it was a draft, the session id and the cost — and, for local tools, their inputs, settings and the program that made the file (`ffmpeg`, `chrome`, `python`). When a user asks how a file was made, read the manifest rather than guessing.
