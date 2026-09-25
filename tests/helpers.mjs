@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 
 export const PLUGIN_ROOT = path.resolve(import.meta.dirname, "..", "plugins", "grok");
+export const REPO_ROOT = path.resolve(PLUGIN_ROOT, "..", "..");
 export const LIB = path.join(PLUGIN_ROOT, "scripts", "lib");
 
 export function makeTempDir(prefix = "grok-plugin-test-") {

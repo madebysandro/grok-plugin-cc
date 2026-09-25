@@ -1,8 +1,10 @@
 /**
  * Consistency checks on what Claude reads: the skills, the grok-media agent,
- * the slash-command files and the README. They catch a router that forgets a
- * command, a document naming a command that does not exist, and a generation
- * example that would run into the Bash tool's 2-minute default timeout.
+ * the slash-command files and the README. They catch a router or a README that
+ * forgets a command, a document naming a command that does not exist, a
+ * generation example that would run into the Bash tool's 2-minute default
+ * timeout, argument hints missing their options, talk of money where a run
+ * spends quota, and diverging definitions of `@last`.
  */
 
 import assert from "node:assert/strict";
@@ -10,9 +12,8 @@ import fs from "node:fs";
 import path from "node:path";
 import test from "node:test";
 
-import { PLUGIN_ROOT } from "./helpers.mjs";
+import { PLUGIN_ROOT, REPO_ROOT } from "./helpers.mjs";
 
-const REPO_ROOT = path.resolve(PLUGIN_ROOT, "..", "..");
 const GENERATION_COMMANDS = ["image", "edit", "animate", "video", "ref-video"];
 
 const COMMANDS = fs
@@ -25,13 +26,13 @@ const SKILLS = fs.readdirSync(path.join(PLUGIN_ROOT, "skills")).filter((name) =>
 /** Every document Claude reads, as `[label, text]`. The CHANGELOG and docs/ are history, and left out. */
 function documents() {
   return [
-    ...SKILLS.map((name) => [`skills/${name}/SKILL.md`, fs.readFileSync(path.join(PLUGIN_ROOT, "skills", name, "SKILL.md"), "utf8")]),
+    ...SKILLS.map((name) => [`skills/${name}/SKILL.md`, skillText(name)]),
     ...fs
       .readdirSync(path.join(PLUGIN_ROOT, "agents"))
       .filter((file) => file.endsWith(".md"))
       .map((file) => [`agents/${file}`, fs.readFileSync(path.join(PLUGIN_ROOT, "agents", file), "utf8")]),
-    ...COMMANDS.map((name) => [`commands/${name}.md`, fs.readFileSync(path.join(PLUGIN_ROOT, "commands", `${name}.md`), "utf8")]),
-    ["README.md", fs.readFileSync(path.join(REPO_ROOT, "README.md"), "utf8")]
+    ...COMMANDS.map((name) => [`commands/${name}.md`, commandText(name)]),
+    ["README.md", readmeText()]
   ];
 }
 
@@ -62,6 +63,24 @@ function skillText(name) {
   return fs.readFileSync(path.join(PLUGIN_ROOT, "skills", name, "SKILL.md"), "utf8");
 }
 
+/** The body of a document's `## heading` section, up to the next `## `. */
+function section(text, heading, label) {
+  const start = text.indexOf(`\n${heading}\n`);
+  assert.notEqual(start, -1, `${label}: the "${heading}" section is missing`);
+  const end = text.indexOf("\n## ", start + 1);
+  return text.slice(start, end === -1 ? undefined : end);
+}
+
+function readmeText() {
+  return fs.readFileSync(path.join(REPO_ROOT, "README.md"), "utf8");
+}
+
+/** The commands a text never names, as `/grok:<name>`. */
+function missingCommands(text) {
+  const mentioned = commandsMentioned(text);
+  return COMMANDS.filter((command) => !mentioned.has(command)).map((command) => `/grok:${command}`);
+}
+
 test("every skill names itself after its folder and says when to use it", () => {
   for (const name of SKILLS) {
     const fields = frontmatter(skillText(name), `skills/${name}/SKILL.md`);
@@ -71,14 +90,8 @@ test("every skill names itself after its folder and says when to use it", () => 
 });
 
 test("grok-generate's routing table covers every command the plugin has", () => {
-  const text = skillText("grok-generate");
-  const start = text.indexOf("## Intent → command");
-  assert.notEqual(start, -1, "skills/grok-generate/SKILL.md: the \"## Intent → command\" section is missing");
-  const end = text.indexOf("\n## ", start + 1);
-  const mentioned = commandsMentioned(text.slice(start, end === -1 ? undefined : end));
-
-  const missing = COMMANDS.filter((command) => !mentioned.has(command));
-  assert.deepEqual(missing, [], `skills/grok-generate/SKILL.md: its "Intent → command" section never routes to ${missing.map((c) => `/grok:${c}`).join(", ")}`);
+  const missing = missingCommands(section(skillText("grok-generate"), "## Intent → command", "skills/grok-generate/SKILL.md"));
+  assert.deepEqual(missing, [], `skills/grok-generate/SKILL.md: its "Intent → command" section never routes to ${missing.join(", ")}`);
 });
 
 test("no document names a /grok: command that does not exist", () => {
@@ -111,6 +124,11 @@ test("every example that runs a generation in the foreground gives Bash a 10-min
   }
 });
 
+test("the README's command table lists every command the plugin has", () => {
+  const missing = missingCommands(section(readmeText(), "## Commands", "README.md"));
+  assert.deepEqual(missing, [], `README.md: its "Commands" section never lists ${missing.join(", ")}`);
+});
+
 test("grok-generate only answers an explicit request for Grok", () => {
   const { description } = frontmatter(skillText("grok-generate"), "skills/grok-generate/SKILL.md");
 
@@ -140,18 +158,18 @@ test("each generation command's argument-hint shows the options it takes", () =>
   }
 });
 
-test("no command file talks of money: a run draws on the plan's quota", () => {
-  for (const name of COMMANDS) {
-    const match = /\b(?:money|bill(?:ed|ing)?|paid|charged?)\b/i.exec(commandText(name));
-    assert.equal(match, null, `commands/${name}.md says "${match?.[0]}"; the plugin spends the subscription's weekly quota, not money`);
+test("no document talks of money: a run draws on the plan's quota", () => {
+  for (const [label, text] of documents()) {
+    const match = /\b(?:money|bill(?:ed|ing)?|paid|charged?)\b/i.exec(text);
+    assert.equal(match, null, `${label} says "${match?.[0]}"; the plugin spends the subscription's weekly quota, not money`);
   }
 });
 
-test("every command file defines @last the same way", () => {
+test("every document defines @last the same way", () => {
   const definition = "the last file the plugin saved in this workspace, by a generation or a local tool";
-  for (const name of COMMANDS) {
-    for (const [, meaning] of commandText(name).matchAll(/`@last` \(([^)]*)\)/g)) {
-      assert.ok(meaning.startsWith(definition), `commands/${name}.md defines @last as "${meaning}"; use "${definition}"`);
+  for (const [label, text] of documents()) {
+    for (const [, meaning] of text.matchAll(/`@last` \(([^)]*)\)/g)) {
+      assert.ok(meaning.startsWith(definition), `${label} defines @last as "${meaning}"; use "${definition}"`);
     }
   }
 });

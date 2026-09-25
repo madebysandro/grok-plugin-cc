@@ -29,7 +29,7 @@ Bash({ command: `node "${CLAUDE_PLUGIN_ROOT}/scripts/grok-companion.mjs" ref-vid
 
 The local tools run on this machine in seconds, cost no quota, and need no special timeout: `last-frame`, `concat`, `mute`, `reframe`, `overlay`, `cutout`, `split` (e.g. `node "${CLAUDE_PLUGIN_ROOT}/scripts/grok-companion.mjs" last-frame @last --json`).
 
-Quote prompts in single quotes so the shell leaves `$` and backticks alone. Ten minutes is the most a Bash call may run; the companion allows video 20, so a run you expect to be unusually slow belongs in the background (`run_in_background: true`, then `grok-companion.mjs status`). `--json` gives you the saved files and the `jobId` to parse. Every file input takes a path, `@last` (the last file the plugin saved in the workspace) or `job:<id>` / `job:<id>#N`, so a pipeline never has to hunt for paths.
+Quote prompts in single quotes so the shell leaves `$` and backticks alone. Ten minutes is the most a Bash call may run; the companion allows video 20, so a run you expect to be unusually slow belongs in the background (`run_in_background: true`, then `grok-companion.mjs status`). `--json` gives you the saved files and the `jobId` to parse. Every file input takes a path, `@last` (the last file the plugin saved in this workspace, by a generation or a local tool) or `job:<id>` / `job:<id>#N`, so a pipeline never has to hunt for paths.
 
 ## What the tools can actually do
 

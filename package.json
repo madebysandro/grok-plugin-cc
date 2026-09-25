@@ -1,13 +1,13 @@
 {
   "name": "grok-plugin-cc",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "private": true,
   "type": "module",
   "description": "Generate and edit images and video with the Grok CLI, from inside Claude Code or Codex.",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/arielaizn/grok-plugin-cc.git"
+    "url": "git+https://github.com/madebysandro/grok-plugin-cc.git"
   },
   "engines": {
     "node": ">=18.18.0"
