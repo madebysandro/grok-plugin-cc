@@ -36,7 +36,7 @@ Bash({
 })
 ```
 
-Quote the prompt in single quotes, so the shell passes `$`, `!` and backticks through untouched (write an apostrophe inside as `'\''`). The same line works for every command below (`edit`, `animate`, `video`, `ref-video`, the local tools…); the slash commands (`/grok:image` …) do exactly this, for when the user types them. The generation commands and the local tools refuse an option that does not apply to them before anything runs; `ask` keeps the original plugin's behaviour and ignores them.
+Quote the prompt in single quotes, so the shell passes `$`, `!` and backticks through untouched (write an apostrophe inside as `'\''`). The same line works for every command below (`edit`, `animate`, `video`, `ref-video`, the local tools…); the slash commands (`/grok:image` …) do exactly this, for when the user types them. Every command refuses an option that does not apply to it before anything runs. `ask` is the one lenient case: it still accepts the options the original plugin had (ignoring those it does not use), and refuses the ones this round added (`--image`, `--draft`, `--text`, …).
 
 ## Intent → command
 
