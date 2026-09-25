@@ -8,8 +8,8 @@ Generate, edit and animate images and video with the [Grok CLI](https://x.ai/bui
 
 **[Leia em português](README.pt-BR.md)** · [Changelog](plugins/grok/CHANGELOG.md) · [Live test log](docs/live-tests.md)
 
-- **Generate and edit** stills with Image 2.0, which gets short text and accents right.
-- **Animate** a still, or make a clip from a description, at 720p (or a cheap 480p draft).
+- **Generate and edit** stills with Image 2.0, xAI's current image model, which gets short text and accents right: any of its aspect ratios, 21:9 included, and up to five images combined in one edit.
+- **Animate** a still for 1 to 15 s, or make a clip from a description, at 720p (or a cheap 480p draft).
 - **Direct a video from references**: consistent people and products, exact first and last frames, keyframes, preset voices, seamless loops.
 - **Finish locally, with no quota spent**: last frame, join, mute, reframe, exact text over an image, green-screen cut-outs, splitting a sheet into items.
 - **Or just ask Claude** to "use Grok to…": a router skill picks the command and the options, and it only acts when you name Grok.
@@ -229,6 +229,8 @@ Files land in `grok-media/` by default (`--out DIR` changes it). They are named 
 
 The first time a run saves into a folder of a git repository that git does not ignore, the output says so, once per folder. The plugin never edits `.gitignore`.
 
+Job records — what `/grok:status`, `/grok:result`, `@last` and `job:<id>` read — stay out of the workspace, in the plugin's own data folder (`~/.claude/plugins/data/grok-madebysandro-grok` when installed from the marketplace). `GROK_PLUGIN_DATA` points them elsewhere.
+
 ### A project's library
 
 For characters, mascots, products and brands that must stay consistent across pieces, keep one folder each under `grok-media/library/<name>/`:
@@ -346,8 +348,9 @@ A short comparison with the Higgsfield skills for Claude Code, as they describe 
 - **Node.js 18.18+**
 - Optional, for the local tools. Nothing is installed for you, and a missing one is named when a tool needs it:
   - **ffmpeg** (with ffprobe) for `last-frame`, `concat`, `mute` and `reframe`.
-  - **Python 3 with Pillow, numpy and scipy** for `cutout` and `split`. `GROK_PLUGIN_PYTHON` picks another interpreter than the `python3` on your PATH.
+  - **Python 3 with Pillow, numpy and scipy** for `cutout` and `split`. Pillow alone also lets `edit` send a photo over 400 KB as a 1536 px copy, where the Grok CLI would shrink it to 768 px. `GROK_PLUGIN_PYTHON` picks another interpreter than the `python3` on your PATH.
   - **Google Chrome or Chromium** for `overlay`. The plugin looks for the macOS app, then `google-chrome` or `chromium` on the PATH; `CHROME_PATH` points it at a specific binary. It always runs headless with a throwaway profile and never touches your Chrome profile or keychain.
+- `/grok:setup` reads xAI's public model list at docs.x.ai, with no credentials, to tell you when a newer Imagine model is out. `GROK_PLUGIN_DOCS_URL=off` skips it.
 
 ### Switching from the original plugin
 
@@ -377,6 +380,7 @@ plugins/grok/
   scripts/
     grok-companion.mjs
     chroma.py          cutout and split (Pillow, numpy, scipy)
+    refprep.py         an edit's large photos, fitted under 400 KB (Pillow)
     lib/
       grok.mjs         CLI discovery, running Grok headless, auth, plan and ZDR detection
       invocation.mjs   the command line and environment of each Grok run
@@ -385,7 +389,10 @@ plugins/grok/
       session.mjs      session-log parsing and media-call extraction
       assets.mjs       copying assets out, naming, manifest
       refs.mjs         @last and job:<id>[#N] inputs
+      ref-prep.mjs     preparing an edit's large photos for Grok
+      image-size.mjs   a still's size from its header, for animate's aspect ratio
       compat.mjs       setup's zero-cost checks against Grok's sessions on disk
+      model-watch.mjs  setup's look at xAI's current models (docs.x.ai)
       readiness.mjs    the setup report
       local-tools.mjs  the local tools, on ffmpeg.mjs, chroma.mjs and overlay.mjs
       ffmpeg.mjs       ffmpeg and ffprobe
@@ -393,16 +400,16 @@ plugins/grok/
       overlay.mjs      the overlay page, from the options and brand.json
       html-render.mjs  headless Chrome, HTML to PNG
       git-notice.mjs   the one-time note about media git would pick up
-      state.mjs        per-workspace job tracking
+      state.mjs        per-workspace job tracking, in the plugin's own data folder
       render.mjs       output formatting
       args.mjs         argv parsing
 ```
 
-The design notes for this release are in [`docs/spec-paridade-higgsfield.md`](docs/spec-paridade-higgsfield.md) (in Portuguese).
+The design notes of 2.0.0 are in [`docs/spec-paridade-higgsfield.md`](docs/spec-paridade-higgsfield.md) (in Portuguese). 3.0.0's calibration, with the live runs behind it, is in [`docs/live-tests.md`](docs/live-tests.md) and the [CHANGELOG](plugins/grok/CHANGELOG.md).
 
 ## Fork notes and license
 
-This is [`madebysandro/grok-plugin-cc`](https://github.com/madebysandro/grok-plugin-cc), a fork of [`arielaizn/grok-plugin-cc`](https://github.com/arielaizn/grok-plugin-cc) by **Ariel Aizenshtat**, who wrote the original plugin (1.0.0), itself built in the shape of [`openai/codex-plugin-cc`](https://github.com/openai/codex-plugin-cc). Version 2.0.0 is the fork's first release: it aims for the experience of the Higgsfield skills (a few generation commands, local tools that need no AI, and a router skill Claude follows) on a Grok subscription alone. Every change is in the [CHANGELOG](plugins/grok/CHANGELOG.md).
+This is [`madebysandro/grok-plugin-cc`](https://github.com/madebysandro/grok-plugin-cc), a fork of [`arielaizn/grok-plugin-cc`](https://github.com/arielaizn/grok-plugin-cc) by **Ariel Aizenshtat**, who wrote the original plugin (1.0.0), itself built in the shape of [`openai/codex-plugin-cc`](https://github.com/openai/codex-plugin-cc). Version 2.0.0 is the fork's first release: it aims for the experience of the Higgsfield skills (a few generation commands, local tools that need no AI, and a router skill Claude follows) on a Grok subscription alone. Version 3.0.0 calibrates it to Image 2.0 and to what the Grok CLI can ask of it, and keeps its records in its own data folder. Every change is in the [CHANGELOG](plugins/grok/CHANGELOG.md).
 
 MIT; see [LICENSE](LICENSE), which keeps the original copyright notice.
 
