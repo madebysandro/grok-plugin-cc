@@ -1,10 +1,11 @@
 /**
- * The local utilities — `last-frame`, `concat`, `mute`, `reframe` — that
- * assemble pieces from earlier results without Grok and without quota.
+ * The local utilities (see `LOCAL_TOOLS`) that assemble pieces from earlier
+ * results without Grok and without quota.
  *
- * Each run is recorded like a generation (a job plus a manifest entry, with
- * `tool: "ffmpeg"`), so `@last` and `job:<id>` pick its output up next: `@last`
- * is the last file the plugin saved in the workspace, whoever made it.
+ * Each run is recorded like a generation (a job plus a manifest entry, with the
+ * tool's `engine` — e.g. `tool: "ffmpeg"` — as the tool that made each file), so
+ * `@last` and `job:<id>` pick its output up next: `@last` is the last file the
+ * plugin saved in the workspace, whoever made it.
  */
 
 import fs from "node:fs";
@@ -72,18 +73,22 @@ async function probeAll(files) {
 }
 
 /**
- * Per command: a title for the report, what it takes (input files come from the
- * positionals, or from the option `inputs.option` names), and two steps.
+ * Per command: a title for the report, the program that does the work
+ * (`engine`, recorded as each output's tool), what it takes (input files come
+ * from the positionals, or from the option `inputs.option` names), and two steps.
  *
  * `prepare(inputs, options, { cwd })` checks everything that can refuse the
  * request — probing the inputs if it must — and returns the output's name and
- * the work to do, before any file or directory is created.
- * `run(inputs, output, work)` writes the output and returns what the manifest
- * should record about it, plus any `notes` for the user.
+ * the work to do, before any file or directory is created. A tool that writes
+ * several files also returns their `count`; they are named `<stem>-1` to `<stem>-N`.
+ * `run(inputs, output, work)` writes the output (an array of paths when there
+ * is a `count`) and returns what the manifest should record about it, plus any
+ * `notes` for the user.
  */
 export const LOCAL_TOOLS = Object.freeze({
   "last-frame": {
     title: "Last frame",
+    engine: "ffmpeg",
     usage: "last-frame <video> [--out DIR] [--name SLUG]",
     inputs: { accept: ["video"], min: 1, max: 1 },
     options: [],
@@ -100,6 +105,7 @@ export const LOCAL_TOOLS = Object.freeze({
 
   concat: {
     title: "Joined",
+    engine: "ffmpeg",
     usage: "concat <video> <video>... [--reencode] [--out DIR] [--name SLUG]",
     inputs: { accept: ["video"], min: 2, max: Infinity },
     options: ["reencode"],
@@ -120,6 +126,7 @@ export const LOCAL_TOOLS = Object.freeze({
 
   reframe: {
     title: "Reframed",
+    engine: "ffmpeg",
     usage: "reframe <image|video> --aspect W:H [--mode crop|pad] [--anchor center|top|bottom|left|right] [--out DIR] [--name SLUG]",
     inputs: { accept: ["image", "video"], min: 1, max: 1 },
     options: ["aspect", "mode", "anchor"],
@@ -148,6 +155,7 @@ export const LOCAL_TOOLS = Object.freeze({
 
   overlay: {
     title: "Overlaid",
+    engine: "chrome",
     usage:
       'overlay --image <image> --text "…" [--sub "…"] [--brand brand.json] [--position top|center|bottom] ' +
       "[--style clean|bold|glass] [--out DIR] [--name SLUG]",
@@ -192,6 +200,7 @@ export const LOCAL_TOOLS = Object.freeze({
 
   mute: {
     title: "Muted",
+    engine: "ffmpeg",
     usage: "mute <video> [--out DIR] [--name SLUG]",
     inputs: { accept: ["video"], min: 1, max: 1 },
     options: [],
@@ -237,25 +246,37 @@ export async function runLocalTool(command, { options, positionals, cwd }) {
   }
 
   // Everything that can refuse the request runs before the output directory or any file exists.
-  const { stem, extension, work } = await tool.prepare(inputs, options, { cwd });
+  const { stem, extension, work, count } = await tool.prepare(inputs, options, { cwd });
   const outDir = resolveOutDir(options.out, cwd, "grok-media");
-  const output = uniquePath(outDir, options.name ? slugify(options.name) : stem, extension);
+  const base = options.name ? slugify(options.name) : stem;
+  const outputs =
+    count === undefined
+      ? [uniquePath(outDir, base, extension)]
+      : Array.from({ length: count }, (_, index) => uniquePath(outDir, `${base}-${index + 1}`, extension));
 
   const startedAt = Date.now();
   let details;
   let notes;
   try {
-    ({ notes = [], ...details } = await tool.run(inputs, output, work));
+    ({ notes = [], ...details } = await tool.run(inputs, count === undefined ? outputs[0] : outputs, work));
   } catch (error) {
     // Leave no half-written file behind to take the name the next run should get.
-    fs.rmSync(output, { force: true });
+    for (const output of outputs) {
+      fs.rmSync(output, { force: true });
+    }
     throw error;
   }
   const elapsedMs = Date.now() - startedAt;
 
-  const assets = [{ file: output, bytes: fs.statSync(output).size, tool: "ffmpeg", prompt: null, aspectRatio: details.aspect ?? null }];
+  const assets = outputs.map((output) => ({
+    file: output,
+    bytes: fs.statSync(output).size,
+    tool: tool.engine,
+    prompt: null,
+    aspectRatio: details.aspect ?? null
+  }));
   const jobId = generateJobId(command);
-  upsertJob(cwd, { id: jobId, command, status: "completed", outDir, assetCount: 1, files: [output] });
+  upsertJob(cwd, { id: jobId, command, status: "completed", outDir, assetCount: outputs.length, files: outputs });
   writeManifest({ outDir, entries: assets, meta: { command, inputs, ...details } });
 
   return { jobId, outDir, assets, elapsedMs, notes };

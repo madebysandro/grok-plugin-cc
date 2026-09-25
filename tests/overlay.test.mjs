@@ -12,6 +12,7 @@ const CHROME = process.env.CHROME_PATH || "/Applications/Google Chrome.app/Conte
 const HAS_CHROME = fs.existsSync(CHROME);
 const HAS_FFMPEG = ["ffmpeg", "ffprobe"].every((tool) => spawnSync(tool, ["-version"]).status === 0);
 const SYSTEM_FONT = "/System/Library/Fonts/Supplemental/Courier New.ttf";
+const needsFfmpeg = { skip: HAS_FFMPEG ? false : "ffmpeg/ffprobe not found; overlay tests that make pictures skipped" };
 const needsChrome = {
   skip: !HAS_CHROME ? `Chrome not found at ${CHROME}; overlay render tests skipped` : !HAS_FFMPEG ? "ffmpeg/ffprobe not found; overlay render tests skipped" : false
 };
@@ -93,7 +94,8 @@ test("a brand's colours and embedded font are what gets drawn", { skip: needsChr
   // The bold band sits at the bottom, in the brand's primary colour, left of the centred text.
   const [red, green, blue] = regionColour(output, { x: 40, y: 330, width: 20, height: 10 });
   assert.ok(red > 200 && green < 60 && blue < 60, `expected the red band, got rgb(${red}, ${green}, ${blue})`);
-  assert.equal(lastGeneration(sandbox).brand, "Test");
+  const generation = lastGeneration(sandbox);
+  assert.deepEqual([generation.command, generation.brand, generation.style, generation.assets[0].tool], ["overlay", "Test", "bold", "chrome"]);
 });
 
 test("a brand font that does not load is reported, not silently swapped", needsChrome, async (t) => {
@@ -123,7 +125,8 @@ test("overlay takes @last and job:<id>, and its PNG becomes the next @last", nee
   assert.deepEqual(status.jobs[0].files, [media("two.png")]);
 });
 
-test("overlay refuses bad input before Chrome starts", needsChrome, async (t) => {
+// Every refusal happens before Chrome is looked for or started, so this needs no Chrome.
+test("overlay refuses bad input before Chrome starts", needsFfmpeg, async (t) => {
   const sandbox = createSandbox(t);
   makeBase(sandbox.workspace);
   fs.writeFileSync(path.join(sandbox.workspace, "clip.mp4"), "video");
