@@ -19,12 +19,14 @@ function addedOptions(sandbox) {
     ["--image", image],
     ["--image-model", "2.0"],
     ["--draft"],
+    ["--draft=false"],
     ["--resolution", "720p"],
     ["--first-frame", image],
     ["--last-frame", image],
     ["--keyframe", `${image}@2`],
     ["--voice", "ara"],
     ["--loop"],
+    ["--loop=false"],
     ["--text", "hello"],
     ["--sub", "world"],
     ["--brand", "brand.json"],
@@ -55,7 +57,8 @@ test("ask refuses every option added since the original plugin, naming where it 
   const sandbox = createSandbox(t);
 
   for (const option of addedOptions(sandbox)) {
-    await assertRejectedBeforeGrok(sandbox, [...ASK, ...option], new RegExp(`^${option[0]} does not apply to ask; it is for .+\\.$`, "m"));
+    const flag = option[0].split("=")[0];
+    await assertRejectedBeforeGrok(sandbox, [...ASK, ...option], new RegExp(`^${flag} does not apply to ask; it is for .+\\.$`, "m"));
   }
 });
 
@@ -109,16 +112,13 @@ test("ask --json names the command, on success and on failure", async (t) => {
   const sandbox = createSandbox(t);
 
   const done = await generate(sandbox, [...ASK, "--json"], []);
-  assert.deepEqual(pick(JSON.parse(done.stdout), ["ok", "command", "text"]), { ok: true, command: "ask", text: "DONE" });
+  const { ok, command, text } = JSON.parse(done.stdout);
+  assert.deepEqual({ ok, command, text }, { ok: true, command: "ask", text: "DONE" });
 
   sandbox.scenario({ exit: { code: 3, stderr: "grok blew up" } });
   const failed = await sandbox.run([...ASK, "--json"]);
   assert.equal(failed.code, 2, failed.stderr);
   const payload = JSON.parse(failed.stdout);
-  assert.deepEqual(pick(payload, ["ok", "command"]), { ok: false, command: "ask" });
+  assert.deepEqual({ ok: payload.ok, command: payload.command }, { ok: false, command: "ask" });
   assert.match(payload.reason, /Grok exited with code 3\.\ngrok blew up/);
 });
-
-function pick(object, keys) {
-  return Object.fromEntries(keys.map((key) => [key, object[key]]));
-}

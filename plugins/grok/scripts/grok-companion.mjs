@@ -94,13 +94,13 @@ const SHARED_BOOLEAN_OPTIONS = ["json", "verbatim", "write", "draft", "loop", "r
 
 /**
  * Flags the original plugin parsed but never acted on. Someone used to them may
- * still type them; the generation commands and the local tools refuse them, so
- * they neither vanish nor slip into a Grok prompt as text. The commands the
- * original plugin had besides those — `ask`, `status`, `result`, `cancel`,
- * `setup` — take them as they always did, accepted and inert (`ask` is
- * read-only by default, so `--read-only` already held).
+ * still type them; they are refused, so they neither vanish nor slip into a
+ * Grok prompt as text. The original plugin's commands other than the
+ * generation ones (`KEEP_DEAD_OPTIONS`) take them as they always did, accepted
+ * and inert (`ask` is read-only by default, so `--read-only` already held).
  */
 const DEAD_OPTIONS = ["raw", "keep-session", "read-only"];
+const KEEP_DEAD_OPTIONS = new Set(["ask", "status", "result", "cancel", "setup"]);
 
 /**
  * The options the original plugin's `ask` took (`--background` was in its
@@ -386,7 +386,7 @@ async function commandLocalTool({ command, options, positionals, cwd }) {
     }
     // The tool itself failed (exit 2): with --json, say so the way a failed generation does.
     if (options.json && error.exitCode === 2) {
-      emit({ json: true, payload: { ok: false, command, reason: error.message } });
+      emit({ json: true, payload: { ok: false, command, reason: error.message }, text: error.message });
       process.exit(2);
     }
     fail(error.message, error.exitCode);
@@ -414,8 +414,8 @@ async function commandSetup({ options }) {
 }
 
 async function commandAsk({ options, positionals, cwd }) {
-  // An option added since the original plugin would do nothing here; say so rather than drop it.
-  const added = Object.keys(options).find((option) => !ASK_OPTIONS.has(option) && options[option] !== false);
+  // An option added since the original plugin would do nothing here, even as `--flag=false`; say so rather than drop it.
+  const added = Object.keys(options).find((option) => !ASK_OPTIONS.has(option));
   if (added) {
     fail(optionNotApplicable(added, "ask"));
   }
@@ -676,8 +676,7 @@ async function main() {
     fail(error.message);
   }
   const { options, positionals } = parsed;
-  const refusesDead = MEDIA_COMMANDS.has(command) || Object.hasOwn(LOCAL_TOOLS, command);
-  const dead = refusesDead ? DEAD_OPTIONS.find((option) => options[option] !== undefined) : undefined;
+  const dead = KEEP_DEAD_OPTIONS.has(command) ? undefined : DEAD_OPTIONS.find((option) => options[option] !== undefined);
   if (dead) {
     fail(`--${dead} is not an option of this plugin.`);
   }

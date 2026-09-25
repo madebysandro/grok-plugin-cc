@@ -37,7 +37,8 @@ function optionEntry(text, option) {
   const start = lines.findIndex((line) => line.startsWith(`  ${option} `));
   assert.notEqual(start, -1, `help has no ${option} entry`);
   const rest = lines.slice(start + 1);
-  const end = rest.findIndex((line) => !/^ {19}\S/.test(line));
+  // Continuation lines are indented deeper than the two spaces an entry starts with.
+  const end = rest.findIndex((line) => !/^ {3,}\S/.test(line));
   return [lines[start], ...rest.slice(0, end === -1 ? undefined : end)].join(" ").replace(/\s+/g, " ");
 }
 

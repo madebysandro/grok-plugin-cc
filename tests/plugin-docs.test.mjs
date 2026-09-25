@@ -119,7 +119,7 @@ test("grok-generate only answers an explicit request for Grok", () => {
   assert.match(description, /not for/i, "skills/grok-generate/SKILL.md: the description must say which requests it is not for (generic ones)");
 });
 
-/** The options of its own each generation command's argument-hint must show. */
+/** The options specific to each generation command, which its argument-hint must show. */
 const HINTED_OPTIONS = {
   image: ["--aspect", "--count", "--image-model"],
   edit: ["--image", "--aspect", "--count", "--image-model"],

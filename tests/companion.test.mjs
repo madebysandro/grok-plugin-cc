@@ -47,7 +47,7 @@ test("image sends the prompt to grok verbatim", async (t) => {
   assert.ok(sent.includes(prompt), sent);
 });
 
-test("image sends grok exactly this prompt for a single image", async (t) => {
+test("a single-image run sends grok only the rules that apply, with no empty one", async (t) => {
   const sandbox = createSandbox(t);
   sandbox.scenario({ calls: [{ tool: "image_gen", prompt: PROMPT }] });
 

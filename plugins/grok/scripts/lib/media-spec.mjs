@@ -90,9 +90,6 @@ const OPTION_COMMANDS = Object.freeze({
 /** Why `--<option>` is refused on `command`, naming the commands it is for. */
 export function optionNotApplicable(option, command) {
   const commands = OPTION_COMMANDS[option];
-  if (!commands) {
-    return `--${option} does not apply to ${command}.`;
-  }
   const list = commands.length === 1 ? commands[0] : `${commands.slice(0, -1).join(", ")} and ${commands.at(-1)}`;
   return `--${option} does not apply to ${command}; it is for ${list}.`;
 }

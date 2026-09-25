@@ -82,7 +82,7 @@ function harvestCheck({ status, dir, mediaFiles, recovered, when }) {
       status,
       detail:
         `the log of the newest session with media (${when}) leads to only ${recovered} of its ${mediaFiles} media file(s), in ${dir}. ` +
-        "Files like the others would not be collected; if this repeats, the log format may have changed for some media."
+        "The plugin would not have collected the rest; if this keeps happening, the log format may have changed for some kinds of media."
     };
   }
   return {
