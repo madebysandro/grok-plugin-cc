@@ -6,8 +6,8 @@ The first release of the fork [`madebysandro/grok-plugin-cc`](https://github.com
 
 ### Breaking changes
 
-- The marketplace is now named `madebysandro-grok`, so the plugin installs as `grok@madebysandro-grok`, in Claude Code and in Codex. The original keeps `grok-plugin-cc`, and the two marketplaces can be added side by side; to switch, uninstall `grok@grok-plugin-cc` first.
-- Options are checked before Grok runs. On the generation commands and the local tools, one of the plugin's options that the command cannot honour is refused (exit 1, no job, no quota spent) instead of being dropped or sent to Grok as prompt text, so a call that used to pass a stray option now fails. A flag the plugin does not know at all still goes into the prompt, as in 1.0.0.
+- The marketplace is now named `madebysandro-grok`, so the plugin installs as `grok@madebysandro-grok`, in Claude Code and in Codex. The original keeps `grok-plugin-cc`, and the two marketplaces can be added side by side; to switch, uninstall `grok@grok-plugin-cc` first (`/plugin uninstall` in Claude Code, `codex plugin remove` in Codex).
+- Options are checked before Grok runs. On the generation commands and the local tools, one of the plugin's options that the command cannot honour is refused (exit 1, no job, no quota spent) instead of being dropped or sent to Grok as prompt text, so a call that used to pass a stray option now fails. A flag the plugin does not know at all still goes into a Grok command's prompt, as in 1.0.0.
 - The media commands refuse `--count` and `--timeout` values outside their range, or that are not whole numbers, instead of clamping them (`--count 20` used to become 8).
 - `animate` and `video` ask for 720p, where the tool on its own gives 480p. `--draft` gives the 480p tier.
 - `image`, `edit` and the opening frame of `video` use `grok-imagine-image-2.0` by default. `--image-model server` goes back to xAI's default.
@@ -123,7 +123,7 @@ There was one run on each side, so treat the times as indicative. The drop in of
 
 ### Known limitations
 
-- A flag the plugin does not know at all (`--seed 5`) is not refused: like any stray word, it goes to Grok as part of the prompt.
+- A flag the plugin does not know at all (`--seed 5`) is not refused as an option: on a Grok command it goes to Grok as part of the prompt, like any stray word. A local tool takes it for one of its inputs and stops with its usage line.
 - The argument parser only knows `--flag` and `--flag=false` for switches, and gives a value option exactly one word. So `--draft false` sends "false" to Grok as part of the prompt, `--draft=0` and `--draft=no` count as true, and `--duration 10 s` sends "s" as prompt text (`--duration 10s` works).
 - The payload format of `~/.grok/settings_cache.json` is not confirmed. `/grok:setup` may show the plan as "unknown", which only means not verified.
 - The recursion guard only recognises Grok runs the plugin started. A Grok session the user opens themselves, with this Claude plugin loaded, carries no marker, and its calls into the plugin are not refused.

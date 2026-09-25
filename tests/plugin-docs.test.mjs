@@ -1,8 +1,10 @@
 /**
  * Consistency checks on what Claude reads: the skills, the grok-media agent,
- * the slash-command files and the README. They catch a router that forgets a
- * command, a document naming a command that does not exist, and a generation
- * example that would run into the Bash tool's 2-minute default timeout.
+ * the slash-command files and the README. They catch a router or a README that
+ * forgets a command, a document naming a command that does not exist, a
+ * generation example that would run into the Bash tool's 2-minute default
+ * timeout, argument hints missing their options, talk of money where a run
+ * spends quota, and diverging definitions of `@last`.
  */
 
 import assert from "node:assert/strict";
@@ -10,9 +12,8 @@ import fs from "node:fs";
 import path from "node:path";
 import test from "node:test";
 
-import { PLUGIN_ROOT } from "./helpers.mjs";
+import { PLUGIN_ROOT, REPO_ROOT } from "./helpers.mjs";
 
-const REPO_ROOT = path.resolve(PLUGIN_ROOT, "..", "..");
 const GENERATION_COMMANDS = ["image", "edit", "animate", "video", "ref-video"];
 
 const COMMANDS = fs
@@ -25,12 +26,12 @@ const SKILLS = fs.readdirSync(path.join(PLUGIN_ROOT, "skills")).filter((name) =>
 /** Every document Claude reads, as `[label, text]`. The CHANGELOG and docs/ are history, and left out. */
 function documents() {
   return [
-    ...SKILLS.map((name) => [`skills/${name}/SKILL.md`, fs.readFileSync(path.join(PLUGIN_ROOT, "skills", name, "SKILL.md"), "utf8")]),
+    ...SKILLS.map((name) => [`skills/${name}/SKILL.md`, skillText(name)]),
     ...fs
       .readdirSync(path.join(PLUGIN_ROOT, "agents"))
       .filter((file) => file.endsWith(".md"))
       .map((file) => [`agents/${file}`, fs.readFileSync(path.join(PLUGIN_ROOT, "agents", file), "utf8")]),
-    ...COMMANDS.map((name) => [`commands/${name}.md`, fs.readFileSync(path.join(PLUGIN_ROOT, "commands", `${name}.md`), "utf8")]),
+    ...COMMANDS.map((name) => [`commands/${name}.md`, commandText(name)]),
     ["README.md", readmeText()]
   ];
 }

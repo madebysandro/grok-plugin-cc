@@ -24,7 +24,7 @@ Version 2.0.0 is the fork's first release. It aims for the experience of the Hig
 - The `grok-generate` router skill, which acts only when you ask for Grok by name.
 - Foreground runs by default, and a one-time note when media lands in a folder git would pick up.
 
-Every change is in the [CHANGELOG](plugins/grok/CHANGELOG.md). The design notes are in [`docs/spec-paridade-higgsfield.md`](docs/spec-paridade-higgsfield.md) (in Portuguese), and every live generation made while building 2.0.0 is logged in [`docs/live-tests.md`](docs/live-tests.md).
+Every change is in the [CHANGELOG](plugins/grok/CHANGELOG.md). The design notes are in [`docs/spec-paridade-higgsfield.md`](docs/spec-paridade-higgsfield.md) (in Portuguese), and every live generation made while building 2.0.0 is logged in [`docs/live-tests.md`](docs/live-tests.md). The checks made just before the round, such as the 1080p refusal and Image 2.0's first Portuguese text, are listed in the spec's §6.
 
 ## Commands
 
@@ -79,7 +79,7 @@ codex plugin marketplace add https://github.com/madebysandro/grok-plugin-cc
 codex plugin add grok@madebysandro-grok
 ```
 
-The fork's marketplace is named `madebysandro-grok`, not `grok-plugin-cc` like the original's, so the two marketplaces can be added side by side. Both offer a plugin named `grok` with the same `/grok:*` commands, though, so keep only one installed: to switch from the original, uninstall it first (`/plugin uninstall grok@grok-plugin-cc`). Which one you keep is up to you.
+The fork's marketplace is named `madebysandro-grok`, not `grok-plugin-cc` like the original's, so the two marketplaces can be added side by side. Both offer a plugin named `grok` with the same `/grok:*` commands, though, so keep only one installed: to switch from the original, uninstall it first (`/plugin uninstall grok@grok-plugin-cc` in Claude Code, `codex plugin remove grok@grok-plugin-cc` in Codex). Which one you keep is up to you.
 
 ## Usage
 
@@ -147,11 +147,11 @@ With the plugin installed, you can also just ask Claude, as in "use Grok to make
 | `--json` | Machine-readable output |
 | `--verbatim=false` | Let Grok rewrite your prompt instead of passing it through |
 
-`ref-video` has its own inputs (`--first-frame`, `--last-frame`, `--keyframe PATH@SECONDS`, `--voice ID`, `--loop`), and each local tool has a few options of its own. They are listed in each command's argument hint and by `node plugins/grok/scripts/grok-companion.mjs help`. The generation commands and the local tools refuse one of the plugin's options that does not apply to them, before anything runs. `ask` takes the options it always took, and refuses the rest. A flag the plugin does not know at all (`--seed 5`) is not refused: it stays in the prompt text.
+`ref-video` has its own inputs (`--first-frame`, `--last-frame`, `--keyframe PATH@SECONDS`, `--voice ID`, `--loop`), and each local tool has a few options of its own. They are listed in each command's argument hint and by `node plugins/grok/scripts/grok-companion.mjs help`. The generation commands and the local tools refuse one of the plugin's options that does not apply to them, before anything runs. `ask` takes the options it always took, and refuses the rest. A flag the plugin does not know at all (`--seed 5`) is not an option to it: a Grok command sends it to Grok as part of the prompt, and a local tool takes it for one of its inputs and stops.
 
 ## Real limits
 
-Measured on Grok CLI 1.0.41 (see [`docs/live-tests.md`](docs/live-tests.md)), and enforced before Grok runs wherever the plugin can.
+Measured on Grok CLI 1.0.41, in the round's live runs ([`docs/live-tests.md`](docs/live-tests.md)) and in the checks made just before it (the spec's §6), and enforced before Grok runs wherever the plugin can.
 
 | | |
 | --- | --- |
@@ -184,7 +184,7 @@ A short comparison with the Higgsfield skills for Claude Code, as they describe 
 
 **Your prompt is passed through verbatim.** Grok's bundled `imagine` skill otherwise rewrites prompts, which quietly discards art direction you were explicit about. Pass `--verbatim=false` when you *want* it elaborated.
 
-**Options are checked before Grok runs.** An aspect ratio, duration or resolution the tool would reject, or one of the plugin's options the command does not take, is refused at once, with no job created and no quota spent. The message names the fix. A flag the plugin does not know at all is not an option to it, and goes to Grok as part of the prompt.
+**Options are checked before Grok runs.** An aspect ratio, duration or resolution the tool would reject, or one of the plugin's options the command does not take, is refused at once, with no job created and no quota spent. The message names the fix. A flag the plugin does not know at all is not an option to it: a Grok command sends it to Grok as part of the prompt.
 
 **There is no text-to-video tool.** Grok CLI 1.0 exposes `image_gen`, `image_edit`, `image_to_video` and `reference_to_video`. There is no `video_gen`, despite the name appearing in the binary. `/grok:video` therefore runs two steps, generating the opening frame and then animating it, and keeps both files.
 

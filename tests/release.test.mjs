@@ -1,6 +1,7 @@
 /**
  * What a release ships: one version across the plugin, the marketplace and the
- * package, links to this fork rather than the original repository, and a
+ * package, links to this fork rather than the original repository, README
+ * install lines that add this fork's marketplace and install from it, and a
  * CHANGELOG section for that version.
  */
 
@@ -9,15 +10,15 @@ import fs from "node:fs";
 import path from "node:path";
 import test from "node:test";
 
-import { PLUGIN_ROOT } from "./helpers.mjs";
+import { REPO_ROOT } from "./helpers.mjs";
 
-const REPO_ROOT = path.resolve(PLUGIN_ROOT, "..", "..");
 const FORK = "madebysandro/grok-plugin-cc";
 
 const PLUGIN_MANIFEST = "plugins/grok/.claude-plugin/plugin.json";
 const MARKETPLACE = ".claude-plugin/marketplace.json";
 const PACKAGE = "package.json";
 const CHANGELOG = "plugins/grok/CHANGELOG.md";
+const README = "README.md";
 
 /** A file by its path from the repository root, which is also how failure messages name it. */
 function readRepoFile(file) {
@@ -32,11 +33,13 @@ test("the plugin, the marketplace and the package carry one version", () => {
   const listed = marketplace.plugins.find((entry) => entry.name === plugin.name);
   assert.ok(listed, `${MARKETPLACE}: no entry for the "${plugin.name}" plugin`);
 
-  assert.deepEqual(
-    { [`${MARKETPLACE} metadata`]: marketplace.metadata.version, [`${MARKETPLACE} plugin entry`]: listed.version, [PACKAGE]: pkg.version },
-    { [`${MARKETPLACE} metadata`]: plugin.version, [`${MARKETPLACE} plugin entry`]: plugin.version, [PACKAGE]: plugin.version },
-    `every manifest should carry ${PLUGIN_MANIFEST}'s version, ${plugin.version}`
-  );
+  const versions = {
+    [`${MARKETPLACE} metadata`]: marketplace.metadata.version,
+    [`${MARKETPLACE} plugin entry`]: listed.version,
+    [PACKAGE]: pkg.version
+  };
+  const expected = Object.fromEntries(Object.keys(versions).map((where) => [where, plugin.version]));
+  assert.deepEqual(versions, expected, `every manifest should carry ${PLUGIN_MANIFEST}'s version, ${plugin.version}`);
 });
 
 test("the plugin and the package link to this fork", () => {
@@ -44,13 +47,19 @@ test("the plugin and the package link to this fork", () => {
   assert.equal(pkg.repository.url, `git+https://github.com/${FORK}.git`, `${PACKAGE}: repository should be the fork`);
 });
 
-test("the README installs the plugin from this marketplace, in Claude Code and in Codex", () => {
-  const selector = `${plugin.name}@${marketplace.name}`;
-  const installs = [...readRepoFile("README.md").matchAll(/^(?:\/plugin install|codex plugin add) (\S+)$/gm)];
+test("the README adds this fork's marketplace and installs the plugin from it, in Claude Code and in Codex", () => {
+  const readme = readRepoFile(README);
+  const expected = [
+    [/^\/plugin marketplace add (\S+)$/gm, FORK],
+    [/^\/plugin install (\S+)$/gm, `${plugin.name}@${marketplace.name}`],
+    [/^codex plugin marketplace add (\S+)$/gm, `https://github.com/${FORK}`],
+    [/^codex plugin add (\S+)$/gm, `${plugin.name}@${marketplace.name}`]
+  ];
 
-  assert.equal(installs.length, 2, "README.md: expected one `/plugin install` and one `codex plugin add` line");
-  for (const [line, installed] of installs) {
-    assert.equal(installed, selector, `README.md: "${line}" should install ${selector}`);
+  for (const [pattern, argument] of expected) {
+    const lines = [...readme.matchAll(pattern)];
+    assert.equal(lines.length, 1, `${README}: expected exactly one line matching ${pattern}, found ${lines.length}`);
+    assert.equal(lines[0][1], argument, `${README}: "${lines[0][0]}" should end in ${argument}`);
   }
 });
 
