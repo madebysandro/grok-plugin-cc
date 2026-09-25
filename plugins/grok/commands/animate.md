@@ -11,7 +11,7 @@ Raw slash-command arguments:
 
 Argument handling:
 
-- `--image` is required — the still to animate. It takes a path, `@last` (the last file generated in this workspace), `job:<id>` (that job's first file) or `job:<id>#N` (its Nth file).
+- `--image` is required — the still to animate. It takes a path, `@last` (the last file the plugin saved in this workspace, by a generation or a local tool such as `/grok:last-frame`), `job:<id>` (that job's first file) or `job:<id>#N` (its Nth file).
 - The prompt should describe **motion**, not the scene: what moves, how the camera travels, what the light does. The image already establishes the content, so re-describing it wastes the prompt.
 - If the user just generated an image with `/grok:image` or `/grok:edit`, use that exact output path.
 - There is no `--aspect`: the video keeps the source image's shape. Crop the still first if the user wants another shape.
