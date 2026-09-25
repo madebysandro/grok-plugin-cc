@@ -8,7 +8,8 @@
  *
  *   { calls: [{ tool, prompt?, aspectRatio?, content?, error? }] }
  *
- * A call with `error` fails the way Grok logs a failed tool call.
+ * A call with `error` fails the way Grok logs a failed tool call. `--version`
+ * just prints a version and records no session, like the real CLI.
  *
  * Every call is written into the session folder the way Grok does it — media
  * file plus `updates.jsonl` entries — and the JSON envelope goes to stdout.
@@ -45,6 +46,12 @@ fs.appendFileSync(
 function fail(message, code) {
   process.stderr.write(`fake grok: ${message}\n`);
   process.exit(code);
+}
+
+// Like the real CLI: print the version and stop, no session.
+if (args[0] === "--version") {
+  process.stdout.write("grok 1.0.41 (fake)\n");
+  process.exit(0);
 }
 
 const grokHome = process.env.GROK_HOME;

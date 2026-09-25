@@ -79,11 +79,11 @@ export function findGrokBinary() {
   return null;
 }
 
-function runCapture(binary, args, { timeoutMs = 20_000, cwd } = {}) {
+function runCapture(binary, args, { timeoutMs = 20_000, cwd, env = process.env } = {}) {
   return new Promise((resolve) => {
     let child;
     try {
-      child = spawn(binary, args, { cwd, stdio: ["ignore", "pipe", "pipe"] });
+      child = spawn(binary, args, { cwd, env, stdio: ["ignore", "pipe", "pipe"] });
     } catch (error) {
       resolve({ code: null, stdout: "", stderr: String(error?.message ?? error), timedOut: false });
       return;
@@ -115,9 +115,17 @@ function runCapture(binary, args, { timeoutMs = 20_000, cwd } = {}) {
   });
 }
 
-/** `grok --version` output, or null when the binary will not run. */
+/**
+ * `grok --version` output, or null when the binary will not run.
+ *
+ * Grok checks for updates on launch; GROK_DISABLE_AUTOUPDATER keeps this a
+ * purely local call (a piped stderr already suppresses the check too).
+ */
 export async function getGrokVersion(binary) {
-  const result = await runCapture(binary, ["--version"], { timeoutMs: 15_000 });
+  const result = await runCapture(binary, ["--version"], {
+    timeoutMs: 15_000,
+    env: { ...process.env, GROK_DISABLE_AUTOUPDATER: "1" }
+  });
   if (result.code !== 0) {
     return null;
   }
@@ -169,6 +177,71 @@ export function readGrokAuth() {
     // An expired access token is not a problem: the CLI refreshes on demand.
     accessTokenExpired: expired
   };
+}
+
+/**
+ * The only settings-cache fields the plugin reads, and the names it reports
+ * them under. Everything else in the cache is dropped unread.
+ */
+const PLAN_FIELDS = Object.freeze({
+  subscription_tier_display: "tier",
+  image_gen_enabled: "imageGenEnabled",
+  video_gen_enabled: "videoGenEnabled",
+  imagine_tools_disabled: "imagineToolsDisabled"
+});
+
+/** The settings cache wraps a signed `payload`: JSON text, or base64 of it. */
+function decodeSettingsPayload(payload) {
+  for (const decode of [(text) => text, (text) => Buffer.from(text, "base64").toString("utf8")]) {
+    try {
+      const parsed = JSON.parse(decode(String(payload)));
+      if (parsed && typeof parsed === "object") {
+        return parsed;
+      }
+    } catch {
+      // try the next encoding
+    }
+  }
+  return null;
+}
+
+/** First value of each wanted key, wherever it sits in the payload. */
+function collectPlanFields(value, plan, depth = 0) {
+  if (!value || typeof value !== "object" || depth > 8) {
+    return;
+  }
+  for (const [key, child] of Object.entries(value)) {
+    const field = PLAN_FIELDS[key];
+    if (field && plan[field] === undefined && (typeof child === "string" || typeof child === "boolean")) {
+      plan[field] = child;
+    } else {
+      collectPlanFields(child, plan, depth + 1);
+    }
+  }
+}
+
+/**
+ * Plan and media switches from `~/.grok/settings_cache.json`.
+ *
+ * Returns `{ tier, imageGenEnabled, videoGenEnabled, imagineToolsDisabled }`
+ * (null for a field that is absent), or null when the cache is missing,
+ * unreadable or holds none of them. Nothing else from the cache is returned,
+ * logged or stored.
+ */
+export function readGrokPlan() {
+  let cache;
+  try {
+    cache = JSON.parse(fs.readFileSync(path.join(GROK_HOME, "settings_cache.json"), "utf8"));
+  } catch {
+    return null;
+  }
+
+  const found = {};
+  collectPlanFields(decodeSettingsPayload(cache?.payload), found);
+  if (Object.keys(found).length === 0) {
+    return null;
+  }
+  return Object.fromEntries(Object.values(PLAN_FIELDS).map((field) => [field, found[field] ?? null]));
 }
 
 /**

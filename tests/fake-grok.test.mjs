@@ -37,3 +37,16 @@ test("the fake grok records the args and env it was run with", (t) => {
   const { __CF_USER_TEXT_ENCODING, ...env } = call.env;
   assert.deepEqual(env, { GROK_HOME: sandbox.grokHome, GROK_TEST_MARKER: "on" });
 });
+
+test("the fake grok answers --version without opening a session", (t) => {
+  const sandbox = createSandbox(t);
+
+  const { stdout, status } = spawnSync(sandbox.grokBin, ["--version"], {
+    env: { GROK_HOME: sandbox.grokHome },
+    encoding: "utf8"
+  });
+
+  assert.equal(status, 0);
+  assert.match(stdout, /^grok \d+\.\d+\.\d+/);
+  assert.equal(fs.existsSync(path.join(sandbox.grokHome, "sessions")), false);
+});

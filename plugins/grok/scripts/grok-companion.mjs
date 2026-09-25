@@ -17,9 +17,12 @@ import {
   getGrokVersion,
   isZeroDataRetentionVideoError,
   readGrokAuth,
+  readGrokPlan,
   runGrokHeadless
 } from "./lib/grok.mjs";
 import { MEDIA_TOOL_ALLOWLIST, WORKER_ENV_VAR, buildGrokInvocation } from "./lib/invocation.mjs";
+import { checkCompatibility } from "./lib/compat.mjs";
+import { buildReadinessReport } from "./lib/readiness.mjs";
 import {
   extractAgentMessage,
   extractMediaCalls,
@@ -280,61 +283,13 @@ async function runMediaCommand({ command, options, positionals, cwd, promptBuild
 }
 
 async function commandSetup({ options }) {
-  const json = Boolean(options.json);
   const binary = findGrokBinary();
   const version = binary ? await getGrokVersion(binary) : null;
   const auth = binary ? readGrokAuth() : { authenticated: false, reason: "grok-not-installed" };
+  const plan = binary ? readGrokPlan() : null;
 
-  const videoBlocked = Boolean(auth.authenticated && auth.dataRetentionOptOut);
-
-  const checks = [
-    { name: "Grok CLI installed", ok: Boolean(binary), detail: binary ?? "not found on PATH, ~/.grok/bin, or $GROK_BIN" },
-    { name: "Grok CLI runs", ok: Boolean(version), detail: version ?? "could not execute `grok --version`" },
-    { name: "Signed in", ok: Boolean(auth.authenticated), detail: auth.authenticated ? (auth.email ?? "authenticated") : "run `grok login`" },
-    { name: "Image generation", ok: Boolean(binary && auth.authenticated), detail: binary && auth.authenticated ? "available" : "needs an installed, signed-in CLI" },
-    {
-      name: "Video generation",
-      ok: Boolean(binary && auth.authenticated && !videoBlocked),
-      detail: videoBlocked ? "blocked by Zero Data Retention on this account" : binary && auth.authenticated ? "available" : "needs an installed, signed-in CLI"
-    }
-  ];
-
-  const ready = checks.every((check) => check.ok);
-
-  const lines = ["Grok plugin readiness", ""];
-  for (const check of checks) {
-    lines.push(`  ${check.ok ? "ok  " : "FAIL"}  ${check.name}: ${check.detail}`);
-  }
-  lines.push("");
-
-  if (!binary) {
-    lines.push("Install the Grok CLI from https://x.ai/build, then run `grok login`.");
-  } else if (!auth.authenticated) {
-    lines.push("Run `!grok login` to sign in.");
-  } else if (videoBlocked) {
-    lines.push("Images and image editing are ready to use.");
-    lines.push("");
-    lines.push("Video generation will fail on this account:");
-    lines.push(indent(ZDR_HINT));
-  } else {
-    lines.push("Everything is ready. Try `/grok:image a neon-lit rooftop at dusk`.");
-  }
-
-  emit({
-    json,
-    payload: {
-      ready,
-      binary,
-      version,
-      authenticated: Boolean(auth.authenticated),
-      email: auth.email ?? null,
-      teamId: auth.teamId ?? null,
-      zeroDataRetention: Boolean(auth.dataRetentionOptOut),
-      videoAvailable: Boolean(binary && auth.authenticated && !videoBlocked),
-      checks
-    },
-    text: lines.join("\n")
-  });
+  const { text, payload } = buildReadinessReport({ binary, version, auth, plan, compat: checkCompatibility(), zdrHint: ZDR_HINT });
+  emit({ json: Boolean(options.json), payload, text });
 }
 
 async function commandAsk({ options, positionals, cwd }) {
