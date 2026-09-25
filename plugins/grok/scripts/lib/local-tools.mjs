@@ -11,16 +11,33 @@ import fs from "node:fs";
 import path from "node:path";
 
 import { resolveOutDir, slugify, uniquePath, writeManifest } from "./assets.mjs";
-import { MediaToolError, concatClips, extractLastFrame, reframeMedia, stripAudio } from "./ffmpeg.mjs";
+import {
+  MediaToolError,
+  checkConcatCopy,
+  concatClips,
+  extractLastFrame,
+  needsEvenSides,
+  planReframe,
+  probeMedia,
+  probePicture,
+  reframeMedia,
+  stripAudio
+} from "./ffmpeg.mjs";
 import { mediaKindOf, resolveLocalInput } from "./refs.mjs";
 import { generateJobId, upsertJob } from "./state.mjs";
+
+/** Options every local tool takes; each tool lists the ones of its own. */
+const COMMON_OPTIONS = ["out", "name", "json"];
+
+const REFRAME_MODES = ["crop", "pad"];
+const REFRAME_ANCHORS = ["center", "top", "bottom", "left", "right"];
+
+/** Image formats reframe writes back as they came; any other image comes out as PNG. */
+const KEPT_IMAGE_EXTENSIONS = [".jpg", ".jpeg", ".png"];
 
 function stemOf(file) {
   return slugify(path.basename(file, path.extname(file)), "clip");
 }
-
-const REFRAME_MODES = ["crop", "pad"];
-const REFRAME_ANCHORS = ["center", "top", "bottom", "left", "right"];
 
 /** `--aspect 9:16` → `{ width: 9, height: 16, label: "9:16" }`. */
 function parseAspect(value) {
@@ -42,24 +59,35 @@ function pickChoice(value, choices, flag, fallback) {
   return choice;
 }
 
-/** reframe's settings, checked before any file is written. */
-function reframeSettings(options) {
-  return {
-    aspect: parseAspect(options.aspect),
-    mode: pickChoice(options.mode, REFRAME_MODES, "--mode", "crop"),
-    anchor: pickChoice(options.anchor, REFRAME_ANCHORS, "--anchor", "center")
-  };
+async function probeAll(files) {
+  const clips = [];
+  for (const file of files) {
+    clips.push({ file, ...(await probePicture(file)) });
+  }
+  return clips;
 }
 
-/** Per command: a title for the report, how it names its output, and the ffmpeg work. */
+/**
+ * Per command: a title for the report, what it takes, and two steps.
+ *
+ * `prepare(inputs, options)` checks everything that can refuse the request —
+ * probing the inputs if it must — and returns the output's name and the work
+ * to do, before any file or directory is created. `run(inputs, output, work)`
+ * writes the output and returns what the manifest should record about it.
+ */
 export const LOCAL_TOOLS = Object.freeze({
   "last-frame": {
     title: "Last frame",
     usage: "last-frame <video> [--out DIR] [--name SLUG]",
     inputs: { accept: ["video"], min: 1, max: 1 },
-    output: ([input]) => ({ stem: `${stemOf(input)}-last-frame`, extension: ".png" }),
-    run: async ([input], output) => {
-      await extractLastFrame(input, output);
+    options: [],
+    prepare: async ([input]) => ({
+      stem: `${stemOf(input)}-last-frame`,
+      extension: ".png",
+      work: { media: await probePicture(input) }
+    }),
+    run: async ([input], output, { media }) => {
+      await extractLastFrame(input, output, media);
       return {};
     }
   },
@@ -68,10 +96,18 @@ export const LOCAL_TOOLS = Object.freeze({
     title: "Joined",
     usage: "concat <video> <video>... [--reencode] [--out DIR] [--name SLUG]",
     inputs: { accept: ["video"], min: 2, max: Infinity },
-    output: ([first]) => ({ stem: `${stemOf(first)}-concat`, extension: path.extname(first) }),
-    run: async (inputs, output, options) => {
+    options: ["reencode"],
+    prepare: async (inputs, options) => {
       const reencode = options.reencode === true;
-      await concatClips(inputs, output, { reencode });
+      const clips = await probeAll(inputs);
+      if (!reencode) {
+        checkConcatCopy(clips);
+      }
+      // A copy keeps the first clip's container; a re-encode is H.264 + AAC, which is MP4.
+      return { stem: `${stemOf(inputs[0])}-concat`, extension: reencode ? ".mp4" : path.extname(inputs[0]), work: { clips, reencode } };
+    },
+    run: async (inputs, output, { clips, reencode }) => {
+      await concatClips(clips, output, { reencode });
       return { reencode };
     }
   },
@@ -80,14 +116,27 @@ export const LOCAL_TOOLS = Object.freeze({
     title: "Reframed",
     usage: "reframe <image|video> --aspect W:H [--mode crop|pad] [--anchor center|top|bottom|left|right] [--out DIR] [--name SLUG]",
     inputs: { accept: ["image", "video"], min: 1, max: 1 },
-    output: ([input], options) => {
-      const { aspect, mode } = reframeSettings(options);
-      return { stem: `${stemOf(input)}-${aspect.label.replace(":", "x")}-${mode}`, extension: path.extname(input) };
+    options: ["aspect", "mode", "anchor"],
+    prepare: async ([input], options) => {
+      const aspect = parseAspect(options.aspect);
+      const mode = pickChoice(options.mode, REFRAME_MODES, "--mode", "crop");
+      const anchor = pickChoice(options.anchor, REFRAME_ANCHORS, "--anchor", "center");
+      const kind = mediaKindOf(input);
+      const media = await probePicture(input);
+      const plan = planReframe(media.video, aspect, mode, anchor, { even: needsEvenSides(kind, media.video.pixFmt) });
+      const extension =
+        kind === "video" ? ".mp4" : KEPT_IMAGE_EXTENSIONS.includes(path.extname(input).toLowerCase()) ? path.extname(input) : ".png";
+      return {
+        stem: `${stemOf(input)}-${aspect.label.replace(":", "x")}-${mode}`,
+        extension,
+        work: { media, plan, mode, anchor, kind, aspect }
+      };
     },
-    run: async ([input], output, options) => {
-      const { aspect, mode, anchor } = reframeSettings(options);
-      const plan = await reframeMedia(input, output, { aspect, mode, anchor, kind: mediaKindOf(input) });
-      return { aspect: aspect.label, mode, anchor, width: plan.width, height: plan.height };
+    run: async ([input], output, { media, plan, mode, anchor, kind, aspect }) => {
+      await reframeMedia(input, output, { media, plan, mode, kind });
+      // Record the size ffmpeg actually wrote.
+      const { video } = await probeMedia(output);
+      return { aspect: aspect.label, mode, anchor, width: video.width, height: video.height };
     }
   },
 
@@ -95,13 +144,28 @@ export const LOCAL_TOOLS = Object.freeze({
     title: "Muted",
     usage: "mute <video> [--out DIR] [--name SLUG]",
     inputs: { accept: ["video"], min: 1, max: 1 },
-    output: ([input]) => ({ stem: `${stemOf(input)}-muted`, extension: path.extname(input) }),
-    run: async ([input], output) => {
-      await stripAudio(input, output);
+    options: [],
+    prepare: async ([input]) => ({
+      stem: `${stemOf(input)}-muted`,
+      extension: path.extname(input),
+      work: { media: await probePicture(input) }
+    }),
+    run: async ([input], output, { media }) => {
+      await stripAudio(input, output, media);
       return {};
     }
   }
 });
+
+/** Refuse options the tool would otherwise ignore, so nobody thinks they applied. */
+function refuseForeignOptions(command, tool, options) {
+  const accepted = new Set([...COMMON_OPTIONS, ...tool.options]);
+  for (const option of Object.keys(options)) {
+    if (!accepted.has(option)) {
+      throw new MediaToolError(`--${option} does not apply to ${command}.`);
+    }
+  }
+}
 
 /**
  * Run one local tool over `positionals` (its input files) and record the result.
@@ -109,6 +173,7 @@ export const LOCAL_TOOLS = Object.freeze({
  */
 export async function runLocalTool(command, { options, positionals, cwd }) {
   const tool = LOCAL_TOOLS[command];
+  refuseForeignOptions(command, tool, options);
   const { accept, min, max } = tool.inputs;
   if (positionals.length < min || positionals.length > max) {
     throw new MediaToolError(`Usage: /grok:${tool.usage}`);
@@ -120,21 +185,26 @@ export async function runLocalTool(command, { options, positionals, cwd }) {
     throw new MediaToolError(error.message);
   }
 
-  // Everything is checked before the output directory or any file is created.
-  const naming = tool.output(inputs, options);
+  // Everything that can refuse the request runs before the output directory or any file exists.
+  const { stem, extension, work } = await tool.prepare(inputs, options);
   const outDir = resolveOutDir(options.out, cwd, "grok-media");
-  const output = uniquePath(outDir, options.name ? slugify(options.name) : naming.stem, naming.extension);
+  const output = uniquePath(outDir, options.name ? slugify(options.name) : stem, extension);
 
   const startedAt = Date.now();
-  const details = await tool.run(inputs, output, options);
+  let details;
+  try {
+    details = await tool.run(inputs, output, work);
+  } catch (error) {
+    // Leave no half-written file behind to take the name the next run should get.
+    fs.rmSync(output, { force: true });
+    throw error;
+  }
   const elapsedMs = Date.now() - startedAt;
 
   const assets = [{ file: output, bytes: fs.statSync(output).size, tool: "ffmpeg", prompt: null, aspectRatio: details.aspect ?? null }];
-  const jobId = options.job || generateJobId(command);
+  const jobId = generateJobId(command);
   upsertJob(cwd, { id: jobId, command, status: "completed", outDir, assetCount: 1, files: [output] });
   writeManifest({ outDir, entries: assets, meta: { command, inputs, ...details } });
 
   return { jobId, outDir, assets, elapsedMs };
 }
-
-export { MediaToolError };

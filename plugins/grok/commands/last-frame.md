@@ -6,14 +6,14 @@ allowed-tools: Bash(node:*), Read
 
 Save the last frame a clip really shows as a PNG, with ffmpeg on this machine — no Grok call, no quota. This is how one clip continues into the next: animate the last frame of the previous clip.
 
+Raw slash-command arguments:
+`$ARGUMENTS`
+
 Argument handling:
 
 - One video. It takes a path, `@last` (the last file the plugin saved in this workspace, by a generation or a local tool), `job:<id>` (that job's first file) or `job:<id>#N` (its Nth file).
 - The saved PNG becomes `@last`, so `/grok:animate "<motion>" --image @last` continues the action.
 - Grok's clips carry a cover picture as a second video stream; it is ignored — the frame comes from the clip itself.
-
-Raw slash-command arguments:
-`$ARGUMENTS`
 
 Execution — local and quick, always in the foreground:
 

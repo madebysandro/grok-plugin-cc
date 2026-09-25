@@ -47,7 +47,8 @@ import {
   VIDEO_RESOLUTIONS,
   resolveMediaSpec
 } from "./lib/media-spec.mjs";
-import { LOCAL_TOOLS, MediaToolError, runLocalTool } from "./lib/local-tools.mjs";
+import { MediaToolError } from "./lib/ffmpeg.mjs";
+import { LOCAL_TOOLS, runLocalTool } from "./lib/local-tools.mjs";
 import { resolveImageArg } from "./lib/refs.mjs";
 import {
   findJob,

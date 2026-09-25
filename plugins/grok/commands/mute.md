@@ -6,13 +6,13 @@ allowed-tools: Bash(node:*), Read
 
 Remove the soundtrack from a clip, with ffmpeg on this machine — no Grok call, no quota. Every Grok video comes with sound; this gives a silent copy.
 
+Raw slash-command arguments:
+`$ARGUMENTS`
+
 Argument handling:
 
 - One video. It takes a path, `@last` (the last file the plugin saved in this workspace, by a generation or a local tool), `job:<id>` (that job's first file) or `job:<id>#N` (its Nth file).
 - The video stream is copied as it is — not re-encoded — and Grok's cover picture is left out.
-
-Raw slash-command arguments:
-`$ARGUMENTS`
 
 Execution — local and quick, always in the foreground:
 

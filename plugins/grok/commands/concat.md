@@ -6,15 +6,15 @@ allowed-tools: Bash(node:*), Read
 
 Join two or more clips in the order given, with ffmpeg on this machine — no Grok call, no quota.
 
+Raw slash-command arguments:
+`$ARGUMENTS`
+
 Argument handling:
 
 - Two or more videos. Each takes a path, `@last` (the last file the plugin saved in this workspace, by a generation or a local tool), `job:<id>` (that job's first file) or `job:<id>#N` (its Nth file).
-- By default the streams are copied, so nothing loses quality. That needs every clip to match the first in size, frame rate and codecs (sound included); otherwise the command refuses and lists how each clip differs.
-- `--reencode` joins clips that differ: each is scaled and padded to the first clip's size and frame rate, a clip without sound gets silence, and the result is re-encoded (H.264 + AAC). Suggest it only after the plain join was refused.
+- By default the streams are copied, so nothing loses quality. That needs every clip to match the first in size, frame rate, codecs and stream order (sound included); otherwise the command refuses and lists how each clip differs.
+- `--reencode` joins clips that differ: each is scaled and padded to the first clip's size and frame rate, a clip without sound gets silence, and the result is re-encoded to an H.264 + AAC MP4. Suggest it only after the plain join was refused.
 - Grok's cover pictures are left out of the joined file.
-
-Raw slash-command arguments:
-`$ARGUMENTS`
 
 Execution — local and quick, always in the foreground:
 

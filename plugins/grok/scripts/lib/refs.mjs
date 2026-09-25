@@ -63,12 +63,12 @@ export function resolveLocalInput(raw, cwd, { accept, command }) {
 
   const label = ref ? `${value}: ${file} (job "${ref.job.id}")` : value;
   const kind = mediaKindOf(file);
-  const wanted = accept.join(" or ");
+  const wanted = accept.map((each) => `${each === "image" ? "an" : "a"} ${each}`).join(" or ");
   if (!kind) {
-    throw new Error(`${label} is neither an image nor a video, going by its extension; ${command} takes an ${wanted}.`);
+    throw new Error(`${label} is neither an image nor a video, going by its extension; ${command} takes ${wanted}.`);
   }
   if (!accept.includes(kind)) {
-    throw new Error(`${label} is an ${kind}; ${command} needs a ${wanted}.`);
+    throw new Error(`${label} is ${kind === "image" ? "an" : "a"} ${kind}; ${command} needs ${wanted}.`);
   }
   return file;
 }
