@@ -20,6 +20,7 @@ Built in the shape of [`openai/codex-plugin-cc`](https://github.com/openai/codex
 | `/grok:ask` | Delegate a general task to Grok |
 | `/grok:last-frame` · `/grok:concat` · `/grok:mute` · `/grok:reframe` | Local video and image tools (ffmpeg; no Grok, no quota): last frame as PNG, join clips, drop the soundtrack, change the aspect ratio |
 | `/grok:overlay` | Exact text over an image, rendered in HTML by headless Chrome, optionally from a `brand.json` (no Grok, no quota) |
+| `/grok:cutout` · `/grok:split` | Local image tools (Python; no Grok, no quota): clear a green-screen background to transparency, split a sheet into one transparent PNG per item |
 | `/grok:setup` | Check the CLI is installed, signed in, and what it can generate |
 | `/grok:status` · `/grok:result` · `/grok:cancel` | Manage background jobs |
 
@@ -29,6 +30,7 @@ Plus a `grok-media` subagent for multi-asset work, and three skills covering the
 
 - **Grok CLI**, signed in — install from [x.ai/build](https://x.ai/build), then `grok login`. Usage counts against your xAI account.
 - **Node.js 18.18+**
+- Optional, for the local tools: **ffmpeg** (`last-frame`, `concat`, `mute`, `reframe`) and **Python 3 with Pillow, numpy and scipy** (`cutout`, `split`; `GROK_PLUGIN_PYTHON` picks another interpreter than the `python3` on PATH). Nothing is installed for you; a missing one is named when a tool needs it.
 
 ## Install
 

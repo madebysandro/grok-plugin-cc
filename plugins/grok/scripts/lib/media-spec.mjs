@@ -71,7 +71,11 @@ const OPTION_COMMANDS = Object.freeze({
   style: ["overlay"],
   mode: ["reframe"],
   anchor: ["reframe"],
-  reencode: ["concat"]
+  reencode: ["concat"],
+  key: ["cutout"],
+  tolerance: ["cutout", "split"],
+  expect: ["split"],
+  bg: ["split"]
 });
 
 function notApplicable(option, command) {

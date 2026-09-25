@@ -39,6 +39,13 @@ One run on each side, so treat the times as indicative. The drop in offered tool
 - Voice ids are not checked locally: xAI's public docs list the roster only as an example, so an unknown id reaches Grok, whose error names the available voices.
 - `--loop`, `--voice`, `--keyframe`, `--first-frame` and `--last-frame` are refused by the other commands instead of being ignored. One table in `lib/media-spec.mjs` now says which command each such option belongs to.
 
+### `/grok:cutout` and `/grok:split`
+
+- Two local image tools, run with Python 3 (Pillow, numpy, scipy) through `scripts/chroma.py`; no Grok, no quota, no OpenCV or rembg. A missing Python or library is named, with the `pip install` that adds it; nothing is installed.
+- `cutout <image>` clears a flat background (`--key`, default `#00FF00`) to transparency, with a soft edge past `--tolerance` (RGB distance, default 80), and removes the key colour's spill along the cut edge only (3 px, or 1% of the shorter side on larger images), so a green subject keeps its own colour.
+- `split <sheet>` writes one transparent PNG per item, found as separate shapes, following the recipe in Grok's bundled sheet guide: a small piece closer than 3% of the sheet's width to a much bigger item joins it (items of similar size never merge, so a tight grid stays a grid), specks under 0.05% of its area are dropped, items are numbered row by row, and all share one canvas with a margin of about 6%, standing on one baseline. `--expect N` refuses a different count, an item touching the sheet's edge is refused, `--bg auto` reads the background from the corners, and a sheet with transparency is split along it.
+- Both take `@last` and `job:<id>[#N]`, check everything before writing, and record a job and manifest entry with `tool: "python"`. Local tools now name their engine and may write several files, each reachable as `job:<id>#N`.
+
 ## 1.0.0
 
 Initial release.

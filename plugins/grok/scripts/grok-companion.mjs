@@ -82,7 +82,8 @@ const MEDIA_COMMANDS = new Set(Object.keys(MEDIA_TOOL_ALLOWLIST));
 
 const SHARED_VALUE_OPTIONS = [
   "out", "aspect", "count", "name", "model", "effort", "timeout", "duration", "resolution", "image-model", "job",
-  "first-frame", "last-frame", "mode", "anchor", "text", "sub", "brand", "position", "style"
+  "first-frame", "last-frame", "mode", "anchor", "text", "sub", "brand", "position", "style",
+  "key", "tolerance", "expect", "bg"
 ];
 const SHARED_BOOLEAN_OPTIONS = ["json", "verbatim", "raw", "keep-session", "read-only", "write", "draft", "loop", "reencode"];
 
@@ -338,7 +339,7 @@ async function runMediaCommand({ command, options, positionals, cwd, promptBuild
   process.exit(2);
 }
 
-/** The local tools (`LOCAL_TOOLS`): ffmpeg or Chrome on local files, no Grok. */
+/** The local tools (`LOCAL_TOOLS`): ffmpeg, Chrome or Python on local files, no Grok. */
 async function commandLocalTool({ command, options, positionals, cwd }) {
   let result;
   try {
@@ -526,7 +527,7 @@ function commandHelp() {
       "  result  [job-id]            Show a job's output files",
       "  cancel  [job-id]            Cancel a running job",
       "",
-      "Local tools (ffmpeg or Chrome on your files; no Grok, no quota):",
+      "Local tools (ffmpeg, Chrome or Python on your files; no Grok, no quota):",
       "  last-frame <video>          Save the clip's last frame as a PNG",
       "  concat <video> <video>...   Join clips; --reencode when their size, fps or codecs differ",
       "  mute <video>                Drop the soundtrack, keeping the video as it is",
@@ -534,6 +535,10 @@ function commandHelp() {
       "                              Crop, or pad on a blurred copy, to another ratio",
       '  overlay --image I --text "T" [--sub "S"] [--brand brand.json] [--position top|center|bottom] [--style clean|bold|glass]',
       "          [--timeout SECS]    Exact text over an image, rendered by headless Chrome (timeout 1-600 s, default 60)",
+      "  cutout <image> [--key #00FF00] [--tolerance N]",
+      "                              Clear a flat background to transparency, without a green fringe",
+      "  split <sheet> [--expect N] [--bg auto|#hex] [--tolerance N]",
+      "                              One transparent PNG per item of a sheet, all on one canvas",
       "",
       "Common options:",
       "  --out DIR        Output directory (default: grok-media/)",
