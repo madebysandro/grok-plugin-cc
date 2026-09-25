@@ -89,6 +89,13 @@ const SHARED_VALUE_OPTIONS = [
 // consumed here so it never ends up in the prompt, and it changes nothing about the run itself.
 const SHARED_BOOLEAN_OPTIONS = ["json", "verbatim", "write", "draft", "loop", "reencode", "background"];
 
+/**
+ * Flags the original plugin parsed but never acted on. Someone used to them may
+ * still type them; they are recognised only to be refused, so they neither
+ * vanish nor slip into a (billed) Grok prompt as text.
+ */
+const DEAD_OPTIONS = ["raw", "keep-session", "read-only"];
+
 const ZDR_HINT = [
   "Cause: this xAI account has Zero Data Retention enabled",
   "(`coding_data_retention_opt_out: true` in ~/.grok/auth.json).",
@@ -627,7 +634,7 @@ async function main() {
   try {
     parsed = parseArgs(argv.slice(1), {
       valueOptions: SHARED_VALUE_OPTIONS,
-      booleanOptions: SHARED_BOOLEAN_OPTIONS,
+      booleanOptions: [...SHARED_BOOLEAN_OPTIONS, ...DEAD_OPTIONS],
       repeatOptions: ["image", "keyframe", "voice"],
       aliases: { o: "out", n: "count", m: "model" }
     });
@@ -635,6 +642,10 @@ async function main() {
     fail(error.message);
   }
   const { options, positionals } = parsed;
+  const dead = DEAD_OPTIONS.find((option) => options[option] !== undefined);
+  if (dead) {
+    fail(`--${dead} is not an option of this plugin.`);
+  }
 
   const cwd = process.env.CLAUDE_PROJECT_DIR ? path.resolve(process.env.CLAUDE_PROJECT_DIR) : process.cwd();
 

@@ -216,9 +216,23 @@ test("options a generation command would ignore are refused, naming the commands
 test("a flag the plugin does not have reaches Grok in the prompt rather than vanishing", async (t) => {
   const sandbox = createSandbox(t);
 
-  await generate(sandbox, ["image", "a red kite", "--raw"], [{ tool: "image_gen" }]);
+  await generate(sandbox, ["image", "a red kite", "--vivid"], [{ tool: "image_gen" }]);
 
-  assert.ok(lastPromptLines(sandbox).includes("a red kite --raw"), lastPromptLines(sandbox).join("\n"));
+  assert.ok(lastPromptLines(sandbox).includes("a red kite --vivid"), lastPromptLines(sandbox).join("\n"));
+});
+
+test("the original plugin's dead flags are refused, not sent to Grok", async (t) => {
+  const sandbox = createSandbox(t);
+
+  const refusals = [
+    [["image", "a red kite", "--raw"], /--raw is not an option of this plugin\./],
+    [["video", "a kite at dusk", "--keep-session"], /--keep-session is not an option of this plugin\./],
+    [["ask", "summarise the README", "--read-only"], /--read-only is not an option of this plugin\./],
+    [["status", "--raw"], /--raw is not an option of this plugin\./]
+  ];
+  for (const [args, pattern] of refusals) {
+    await assertRejectedBeforeGrok(sandbox, args, pattern);
+  }
 });
 
 test("animate refuses a second --image instead of animating only the first", async (t) => {
