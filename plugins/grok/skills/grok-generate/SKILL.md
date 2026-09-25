@@ -5,7 +5,7 @@ description: Route a media request to the Grok plugin — ONLY when the user exp
 
 # Grok Generate
 
-Turn "use Grok to …" into the right plugin command, run it, and hand back the result — the way the Higgsfield skills do, but on the user's Grok subscription through the Grok CLI: no API key, no per-generation charge beyond the plan's weekly quota.
+Turn "use Grok to …" into the right plugin command, run it, and hand back the result — the way the Higgsfield skills do, but on the user's Grok subscription through the Grok CLI: no API key, and every run draws only on the plan's weekly quota.
 
 ## Only when the user asks for Grok
 
@@ -68,11 +68,11 @@ Quote the prompt in single quotes, so the shell passes `$`, `!` and backticks th
 
 ### Chaining results
 
-Any file input takes `@last` (the last file the plugin saved in the workspace — a generation or a local tool), `job:<id>` (that job's first file) or `job:<id>#N`. Job ids are in every command's output. A `video` job holds `[still, clip]`, so after it `@last` is the clip and `job:<id>#1` the still.
+Any file input takes `@last` (the last file the plugin saved in this workspace, by a generation or a local tool), `job:<id>` (that job's first file) or `job:<id>#N`. Job ids are in every command's output. A `video` job holds `[still, clip]`, so after it `@last` is the clip and `job:<id>#1` the still.
 
 ## What Grok really does (Grok CLI 1.0.41, measured live)
 
-- **Images** come out about 1K: 1024×1024 square, 1280×720 wide. Image 2.0 (the default; `--image-model quality|standard|server` goes back) renders accents and prices right — "TORREFAÇÃO", "CAFÉ", "R$ 5,90". `image_edit` reduces every reference image to about 768 px / 400 KB before using it, so fine detail in a reference — small text, a logo, a pattern — can be lost or redrawn. Tell the user before an edit that depends on such detail, and for exact text or logos add them afterwards with `/grok:overlay`.
+- **Images** come out about 1K: 1024×1024 square, 1280×720 wide. Image 2.0 (the default; `--image-model quality|standard|server` goes back) renders accents and prices right: "TORREFAÇÃO" and "CAFÉ" in the round's live tests (`docs/live-tests.md`), "R$ 5,90" in a live test made before the round. `image_edit` reduces every reference image to about 768 px / 400 KB before using it, so fine detail in a reference — small text, a logo, a pattern — can be lost or redrawn. Tell the user before an edit that depends on such detail, and for exact text or logos add them afterwards with `/grok:overlay`.
 - **Video** is 720p or the 480p tier, nothing higher. 720p gave a real 1280×720 from a 16:9 still. The "480p" tier is not 480 lines: `animate`/`video` gave 736×400 from a 1280×720 still, `ref-video` 848×480 for 16:9 whatever the references' shape. `animate`/`video` last 6 or 10 s; `ref-video` 1–15 s.
 - Every clip is H.264 at 24 fps **with an AAC soundtrack**, plus an MJPEG cover picture as a second video stream.
 - `ref-video` took **8 reference images** on 1.0.41 (its schema says 14; older CLIs, 7 — `/grok:setup` shows which). The voice `eve` spoke a Portuguese line intelligibly. `--loop` gave first and last frames with an SSIM of 0.96.

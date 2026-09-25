@@ -13,7 +13,7 @@ Image models garble exact text, numbers, and structure. They invent digits, mang
 
 So when the output must get specific content *right* — charts from real numbers, labelled diagrams, tables, UI with real copy, anything with more than a few words of text — build it in HTML/CSS and screenshot it. Generate only when what matters is how it looks: photos, illustrations, characters, scenes, textures, decorative art.
 
-A short headline, a name or a price is usually fine: Image 2.0, the default model, draws them right, accents included ("TORREFAÇÃO", "R$ 5,90"). Put such text in quotes in the prompt and say where it goes. A pricing table is not fine.
+A short headline, a name or a price is usually fine: Image 2.0, the default model, draws them right, accents included ("TORREFAÇÃO" in the round's live tests, "R$ 5,90" in one made before the round). Put such text in quotes in the prompt and say where it goes. A pricing table is not fine.
 
 For text laid over a picture — a title, a price, a date, anything long or that must be exact — generate the picture without the text, leaving calm space where the text will sit, and add it with `/grok:overlay`: it renders the exact characters in HTML at the image's own size with headless Chrome, so nothing comes out misspelled.
 
@@ -111,7 +111,7 @@ Re-describing the scene wastes the prompt and can fight the source frame. Keep m
 
 ## When a result comes back wrong
 
-- **Wrong subject or composition** → rewrite the prompt with the subject earlier and more concrete. Do not just re-run: without a seed you are rolling dice, and each roll is billed.
+- **Wrong subject or composition** → rewrite the prompt with the subject earlier and more concrete. Do not just re-run: without a seed you are rolling dice, and each roll spends the plan's weekly quota.
 - **Right subject, one wrong detail** → `/grok:edit` that one detail. Do not regenerate.
 - **Garbled text or numbers** → stop generating. Build it in code.
 - **Drifting across a series** → you are re-generating where you should be editing from a base image.

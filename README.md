@@ -67,7 +67,7 @@ In Claude Code:
 
 ```
 /plugin marketplace add madebysandro/grok-plugin-cc
-/plugin install grok@grok-plugin-cc
+/plugin install grok@madebysandro-grok
 /reload-plugins
 /grok:setup
 ```
@@ -76,8 +76,10 @@ In Codex:
 
 ```bash
 codex plugin marketplace add https://github.com/madebysandro/grok-plugin-cc
-codex plugin add grok
+codex plugin add grok@madebysandro-grok
 ```
+
+The fork's marketplace is named `madebysandro-grok`, not `grok-plugin-cc` like the original's, so the two marketplaces can be added side by side. Both offer a plugin named `grok` with the same `/grok:*` commands, though, so keep only one installed: to switch from the original, uninstall it first (`/plugin uninstall grok@grok-plugin-cc`). Which one you keep is up to you.
 
 ## Usage
 
@@ -141,7 +143,7 @@ With the plugin installed, you can also just ask Claude, as in "use Grok to make
 | `--draft` | `animate`/`video`/`ref-video`: the 480p tier, 6 s unless `--duration` says otherwise |
 | `--background` | In a slash command, have Claude run the generation as a background job (see `/grok:status`) instead of waiting for it |
 | `--model` · `--effort` | Grok model and reasoning effort |
-| `--timeout SECS` | Run timeout: 30–3600 for Grok runs; `overlay` takes 1–600 (default 60) |
+| `--timeout SECS` | Run timeout: 30–3600 for Grok runs (`ask` brings a value outside that into range, the others refuse it); `overlay` takes 1–600 (default 60) |
 | `--json` | Machine-readable output |
 | `--verbatim=false` | Let Grok rewrite your prompt instead of passing it through |
 

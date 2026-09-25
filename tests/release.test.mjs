@@ -44,6 +44,16 @@ test("the plugin and the package link to this fork", () => {
   assert.equal(pkg.repository.url, `git+https://github.com/${FORK}.git`, `${PACKAGE}: repository should be the fork`);
 });
 
+test("the README installs the plugin from this marketplace, in Claude Code and in Codex", () => {
+  const selector = `${plugin.name}@${marketplace.name}`;
+  const installs = [...readRepoFile("README.md").matchAll(/^(?:\/plugin install|codex plugin add) (\S+)$/gm)];
+
+  assert.equal(installs.length, 2, "README.md: expected one `/plugin install` and one `codex plugin add` line");
+  for (const [line, installed] of installs) {
+    assert.equal(installed, selector, `README.md: "${line}" should install ${selector}`);
+  }
+});
+
 test("the CHANGELOG's newest release is the version the manifests carry", () => {
   // An "Unreleased" section on top is work in progress, not a release.
   const newest = /^## (?!Unreleased\b)(\S+)/m.exec(readRepoFile(CHANGELOG))?.[1];

@@ -1,7 +1,7 @@
 {
-  "name": "grok-plugin-cc",
+  "name": "madebysandro-grok",
   "owner": {
-    "name": "Ariel Aizenshtat"
+    "name": "Sandro Roberto"
   },
   "metadata": {
     "description": "Generate and edit images and video with the Grok CLI, from inside Claude Code or Codex.",

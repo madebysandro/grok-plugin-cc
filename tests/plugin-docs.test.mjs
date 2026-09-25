@@ -157,18 +157,18 @@ test("each generation command's argument-hint shows the options it takes", () =>
   }
 });
 
-test("no command file talks of money: a run draws on the plan's quota", () => {
-  for (const name of COMMANDS) {
-    const match = /\b(?:money|bill(?:ed|ing)?|paid|charged?)\b/i.exec(commandText(name));
-    assert.equal(match, null, `commands/${name}.md says "${match?.[0]}"; the plugin spends the subscription's weekly quota, not money`);
+test("no document talks of money: a run draws on the plan's quota", () => {
+  for (const [label, text] of documents()) {
+    const match = /\b(?:money|bill(?:ed|ing)?|paid|charged?)\b/i.exec(text);
+    assert.equal(match, null, `${label} says "${match?.[0]}"; the plugin spends the subscription's weekly quota, not money`);
   }
 });
 
-test("every command file defines @last the same way", () => {
+test("every document defines @last the same way", () => {
   const definition = "the last file the plugin saved in this workspace, by a generation or a local tool";
-  for (const name of COMMANDS) {
-    for (const [, meaning] of commandText(name).matchAll(/`@last` \(([^)]*)\)/g)) {
-      assert.ok(meaning.startsWith(definition), `commands/${name}.md defines @last as "${meaning}"; use "${definition}"`);
+  for (const [label, text] of documents()) {
+    for (const [, meaning] of text.matchAll(/`@last` \(([^)]*)\)/g)) {
+      assert.ok(meaning.startsWith(definition), `${label} defines @last as "${meaning}"; use "${definition}"`);
     }
   }
 });

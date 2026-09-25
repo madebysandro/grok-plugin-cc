@@ -6,6 +6,7 @@ The first release of the fork [`madebysandro/grok-plugin-cc`](https://github.com
 
 ### Breaking changes
 
+- The marketplace is now named `madebysandro-grok`, so the plugin installs as `grok@madebysandro-grok`, in Claude Code and in Codex. The original keeps `grok-plugin-cc`, and the two marketplaces can be added side by side; to switch, uninstall `grok@grok-plugin-cc` first.
 - Options are checked before Grok runs. On the generation commands and the local tools, one of the plugin's options that the command cannot honour is refused (exit 1, no job, no quota spent) instead of being dropped or sent to Grok as prompt text, so a call that used to pass a stray option now fails. A flag the plugin does not know at all still goes into the prompt, as in 1.0.0.
 - The media commands refuse `--count` and `--timeout` values outside their range, or that are not whole numbers, instead of clamping them (`--count 20` used to become 8).
 - `animate` and `video` ask for 720p, where the tool on its own gives 480p. `--draft` gives the 480p tier.
@@ -117,8 +118,8 @@ There was one run on each side, so treat the times as indicative. The drop in of
 ### Documentation, tests and packaging (#2, #14)
 
 - Help and command docs: the `data:` URL form is for the image inputs of `edit`, `animate` and `ref-video` only, not for `overlay` or the other local tools; `status` lists recent jobs of every kind; `edit`'s argument hint shows `--aspect`; the docs speak of the plan's quota rather than money.
-- Black-box tests run the companion as a process against a fake `grok` in a sandbox, with no network, no Grok CLI and nothing read from the real `~/.grok` or plugin state. Tests that need ffmpeg, Python with its libraries, or Chrome skip when those are missing. Document checks make sure every command is routed and listed, no document names a command that does not exist, and every foreground generation example has the 10-minute timeout. Release checks keep one version across the manifests, their links on the fork, and a CHANGELOG section for that version.
-- The README is rewritten for the fork. Plugin, marketplace and package are at 2.0.0, with `homepage` and `repository` pointing at the fork. `docs/live-tests.md` logs the 9 live generations the round used, of the 12 it allowed.
+- Black-box tests run the companion as a process against a fake `grok` in a sandbox, with no network, no Grok CLI and nothing read from the real `~/.grok` or plugin state. Tests that need ffmpeg, Python with its libraries, or Chrome skip when those are missing. Document checks make sure every command is routed and listed, no document names a command that does not exist, and every foreground generation example has the 10-minute timeout. Release checks keep one version across the manifests, their links on the fork, the README's install lines on this marketplace, and a CHANGELOG section for that version. No document Claude reads talks of money, and all define `@last` the same way.
+- The README is rewritten for the fork. Plugin, marketplace and package are at 2.0.0, with `homepage` and `repository` pointing at the fork. The marketplace's owner is Sandro Roberto; the plugin's author is still Ariel Aizenshtat. `docs/live-tests.md` logs the 9 live generations the round used, of the 12 it allowed.
 
 ### Known limitations
 
