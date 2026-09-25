@@ -11,7 +11,7 @@ Raw slash-command arguments:
 
 Argument handling:
 
-- `--image` is required and repeatable; each one is a path to a source image, a `data:` URL, `@last` (the last file generated in this workspace), `job:<id>` (that job's first file) or `job:<id>#N` (its Nth file).
+- `--image` is required and repeatable; each one is a path to a source image, a `data:` URL, `@last` (the last file the plugin saved in this workspace, by a generation or a local tool), `job:<id>` (that job's first file) or `job:<id>#N` (its Nth file).
 - `--aspect` only applies with 2 or more `--image` inputs (1:1, 16:9, 9:16, 4:3, 3:4, 3:2, 2:3, 2:1, 1:2, 19.5:9, 9:19.5, 20:9, 9:20, auto); a single-image edit keeps the source's shape.
 - `--image-model` picks the image model: `2.0` (the default, `grok-imagine-image-2.0`, which renders text such as accents and prices reliably), `quality`, `standard`, or `server` (no override, so xAI's current default applies). Keep the default unless the user asks for another model.
 - If the user described an image but gave no `--image`, find the file first (`Glob`) and confirm the path with them rather than guessing.

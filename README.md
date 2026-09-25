@@ -18,6 +18,7 @@ Built in the shape of [`openai/codex-plugin-cc`](https://github.com/openai/codex
 | `/grok:animate` | Animate a still you already have |
 | `/grok:ref-video` | A video from reference images, pinned first/last frames, keyframes and preset voices (`reference_to_video`) |
 | `/grok:ask` | Delegate a general task to Grok |
+| `/grok:last-frame` · `/grok:concat` · `/grok:mute` · `/grok:reframe` | Local video and image tools (ffmpeg; no Grok, no quota): last frame as PNG, join clips, drop the soundtrack, change the aspect ratio |
 | `/grok:setup` | Check the CLI is installed, signed in, and what it can generate |
 | `/grok:status` · `/grok:result` · `/grok:cancel` | Manage background jobs |
 

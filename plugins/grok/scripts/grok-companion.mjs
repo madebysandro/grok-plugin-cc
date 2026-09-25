@@ -53,6 +53,8 @@ import {
   resolveMediaSpec,
   resolveReferenceInputs
 } from "./lib/media-spec.mjs";
+import { MediaToolError } from "./lib/ffmpeg.mjs";
+import { LOCAL_TOOLS, runLocalTool } from "./lib/local-tools.mjs";
 import { resolveImageArg } from "./lib/refs.mjs";
 import {
   findJob,
@@ -72,14 +74,17 @@ import {
   buildVideoPrompt
 } from "./lib/prompts.mjs";
 
-const COMMANDS = new Set(["setup", "image", "edit", "video", "animate", "ref-video", "ask", "status", "result", "cancel", "help"]);
+const COMMANDS = new Set([
+  "setup", "image", "edit", "video", "animate", "ref-video", "ask", "status", "result", "cancel", "help",
+  ...Object.keys(LOCAL_TOOLS)
+]);
 const MEDIA_COMMANDS = new Set(Object.keys(MEDIA_TOOL_ALLOWLIST));
 
 const SHARED_VALUE_OPTIONS = [
   "out", "aspect", "count", "name", "model", "effort", "timeout", "duration", "resolution", "image-model", "job",
-  "first-frame", "last-frame"
+  "first-frame", "last-frame", "mode", "anchor"
 ];
-const SHARED_BOOLEAN_OPTIONS = ["json", "verbatim", "raw", "keep-session", "read-only", "write", "draft", "loop"];
+const SHARED_BOOLEAN_OPTIONS = ["json", "verbatim", "raw", "keep-session", "read-only", "write", "draft", "loop", "reencode"];
 
 const ZDR_HINT = [
   "Cause: this xAI account has Zero Data Retention enabled",
@@ -333,6 +338,25 @@ async function runMediaCommand({ command, options, positionals, cwd, promptBuild
   process.exit(2);
 }
 
+/** `last-frame`, `concat`, `mute`, `reframe`: ffmpeg on local files, no Grok. */
+async function commandLocalTool({ command, options, positionals, cwd }) {
+  let result;
+  try {
+    result = await runLocalTool(command, { options, positionals, cwd });
+  } catch (error) {
+    if (!(error instanceof MediaToolError)) {
+      throw error;
+    }
+    fail(error.message, error.exitCode);
+  }
+  const { jobId, outDir, assets, elapsedMs } = result;
+  emit({
+    json: Boolean(options.json),
+    payload: { ok: true, command, jobId, outDir, elapsedMs, assets },
+    text: renderMediaResult({ title: LOCAL_TOOLS[command].title, saved: assets, outDir, elapsedMs, jobId })
+  });
+}
+
 async function commandSetup({ options }) {
   const binary = findGrokBinary();
   const version = binary ? await getGrokVersion(binary) : null;
@@ -502,6 +526,13 @@ function commandHelp() {
       "  result  [job-id]            Show a job's output files",
       "  cancel  [job-id]            Cancel a running job",
       "",
+      "Local tools (ffmpeg on your files; no Grok, no quota):",
+      "  last-frame <video>          Save the clip's last frame as a PNG",
+      "  concat <video> <video>...   Join clips; --reencode when their size, fps or codecs differ",
+      "  mute <video>                Drop the soundtrack, keeping the video as it is",
+      "  reframe <image|video> --aspect W:H [--mode crop|pad] [--anchor center|top|bottom|left|right]",
+      "                              Crop, or pad on a blurred copy, to another ratio",
+      "",
       "Common options:",
       "  --out DIR        Output directory (default: grok-media/)",
       `  --aspect RATIO   image, video: ${IMAGE_GEN_ASPECTS.join(", ")}`,
@@ -536,8 +567,10 @@ function commandHelp() {
       "  --loop           Use the one --image as both first and last frame, for a seamless loop",
       `  --aspect RATIO   ${REFERENCE_VIDEO_ASPECTS.join(", ")} (default ${DEFAULT_REFERENCE_ASPECT})`,
       "",
-      "Input images (--image, --first-frame, --last-frame, --keyframe) take a path, a data: URL, or an earlier result:",
-      "  @last            The last file the newest job in this workspace saved",
+      "Inputs (--image, --first-frame, --last-frame, --keyframe, and a local tool's files) take a path",
+      "or an earlier result; the image inputs also take a data: URL:",
+      "  @last            The last file the plugin saved in this workspace, by a",
+      "                   generation or a local tool",
       "  job:<id>         That job's first file (ids are in the output and in status)",
       "  job:<id>#N       That job's Nth file, counting from 1"
     ].join("\n") + "\n"
@@ -583,6 +616,11 @@ async function main() {
   const { options, positionals } = parsed;
 
   const cwd = process.env.CLAUDE_PROJECT_DIR ? path.resolve(process.env.CLAUDE_PROJECT_DIR) : process.cwd();
+
+  if (Object.hasOwn(LOCAL_TOOLS, command)) {
+    await commandLocalTool({ command, options, positionals, cwd });
+    return;
+  }
 
   switch (command) {
     case "setup":

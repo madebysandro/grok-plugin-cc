@@ -19,6 +19,16 @@ import { findJob, listJobs } from "./state.mjs";
 
 const JOB_PREFIX = "job:";
 const IMAGE_EXTENSIONS = new Set([".jpg", ".jpeg", ".png", ".webp", ".gif"]);
+const VIDEO_EXTENSIONS = new Set([".mp4", ".mov", ".m4v", ".webm", ".mkv"]);
+
+/** "image", "video", or null, going by the file's extension. */
+export function mediaKindOf(file) {
+  const extension = path.extname(file).toLowerCase();
+  if (IMAGE_EXTENSIONS.has(extension)) {
+    return "image";
+  }
+  return VIDEO_EXTENSIONS.has(extension) ? "video" : null;
+}
 
 /** Resolve an `--image` value: a path, a `data:` URL, or a reference to an earlier result. */
 export function resolveImageArg(raw, cwd) {
@@ -39,8 +49,32 @@ export function resolveImageArg(raw, cwd) {
   return ref.file;
 }
 
+/**
+ * Resolve an input of a local tool: a path, or a reference to an earlier
+ * result, whose kind (by extension) must be one `command` accepts.
+ */
+export function resolveLocalInput(raw, cwd, { accept, command }) {
+  const value = String(raw ?? "").trim();
+  const ref = resolveResultRef(value, cwd);
+  const file = ref ? ref.file : path.resolve(cwd, value);
+  if (!ref && !(fs.existsSync(file) && fs.statSync(file).isFile())) {
+    throw new Error(`File not found: ${file}`);
+  }
+
+  const label = ref ? `${value}: ${file} (job "${ref.job.id}")` : value;
+  const kind = mediaKindOf(file);
+  const wanted = accept.map((each) => `${each === "image" ? "an" : "a"} ${each}`).join(" or ");
+  if (!kind) {
+    throw new Error(`${label} is neither an image nor a video, going by its extension; ${command} takes ${wanted}.`);
+  }
+  if (!accept.includes(kind)) {
+    throw new Error(`${label} is ${kind === "image" ? "an" : "a"} ${kind}; ${command} needs ${wanted}.`);
+  }
+  return file;
+}
+
 function isImageFile(file) {
-  return IMAGE_EXTENSIONS.has(path.extname(file).toLowerCase());
+  return mediaKindOf(file) === "image";
 }
 
 /** `{ job, file }` for `@last` / `job:<id>[#N]`, or null when `value` is not a reference. */
