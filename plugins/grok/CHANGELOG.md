@@ -21,6 +21,15 @@ Measured on Grok CLI 1.0.41 with one 1:1 image and the same prompt, one run befo
 
 One run on each side, so treat the times as indicative. The drop in offered tools comes from `--tools`; the token and time savings come from the whole lock-down and are not split between its parts.
 
+### Zero-cost compatibility checks in `/grok:setup`
+
+- Reads the session folders Grok already left on disk, never starts a run, and asks the binary only for `--version` with its update check off.
+- Media tools: each of the four is confirmed from the newest session that could tell. A tool is `FAIL` only when a full-toolset session (several non-media tools on offer) lacks it; runs restricted with `--tools` can only confirm what they were offered, and anything unconfirmed stays "not verified", which never blocks.
+- Session log format: media on disk that `updates.jsonl` no longer leads to fails as "session log format changed".
+- Warns when `image_to_video` or `reference_to_video` names a resolution or duration the plugin does not allow, or stops describing one.
+- Detects the old (up to 7 images, no pinned frames) and new (up to 14) `reference_to_video` schema, exposed in `setup --json` as `compat.referenceToVideo`.
+- Shows the plan and the image/video switches from `~/.grok/settings_cache.json`, keeping only those four fields and never printing or storing the rest. A switch that is off warns on the matching check rather than failing it, since the cache's payload format is not pinned down.
+
 ## 1.0.0
 
 Initial release.

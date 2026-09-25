@@ -22,11 +22,7 @@ Grok CLI 1.0 exposes exactly four media tools:
 
 So text-to-video is a two-step run: `image_gen` for the opening frame, then `image_to_video` to animate it. That is what `/grok:video` does, and both artefacts are kept.
 
-To re-check the list on a new CLI version:
-
-```bash
-grok -p "List the exact names of every tool you have available that generates or edits images or video. Output only a comma-separated list. Do not call any tool." --always-approve --output-format json
-```
+To re-check the list on a new CLI version, run `/grok:setup`. It costs nothing: it reads the `tool_definitions.json` Grok writes into each session folder instead of starting a run. For each media tool it trusts the newest session that either offered the tool or offered Grok's whole toolset (several non-media tools). Runs restricted with `--tools` (every plugin media run) list only what they asked for, so a tool is reported missing only when a full-toolset session lacks it; otherwise it stays "not verified", which never blocks. The same check reads the `reference_to_video` schema (old: up to 7 images, no pinned frames; new: up to 14 with first/last frame and keyframes) and warns when a video tool's description names a resolution or duration the plugin does not allow.
 
 ## Invocation
 
@@ -75,6 +71,8 @@ Grok writes media into its own session folder, **not** the working directory:
 ```
 
 The plugin copies them out itself rather than asking the agent to. Asking costs an extra turn, and the agent frequently reports a path it did not actually write.
+
+`/grok:setup` re-checks this on every CLI version at no cost: in the newest session with media on disk, the log must lead to those files. If it leads to none, the log format changed and setup fails with "session log format changed".
 
 Note the bucket is keyed on the cwd Grok resolved, which may differ from the one passed in — `/tmp` versus `/private/tmp` on macOS, for instance. `resolveSessionDir` tries the encoded path, then the real path, then scans every bucket for the session id.
 
