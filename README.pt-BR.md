@@ -8,8 +8,8 @@ Gere, edite e anime imagens e vídeos com o [Grok CLI](https://x.ai/build) sem s
 
 **[Read in English](README.md)** · [Changelog](plugins/grok/CHANGELOG.md) · [Registro dos testes ao vivo](docs/live-tests.md)
 
-- **Gere e edite** imagens com o Image 2.0, que acerta textos curtos e acentos.
-- **Anime** uma imagem, ou crie um clipe a partir de uma descrição, em 720p (ou num rascunho barato em 480p).
+- **Gere e edite** imagens com o Image 2.0, o modelo de imagem atual da xAI, que acerta textos curtos e acentos: em qualquer uma das proporções dele, 21:9 inclusive, e combinando até cinco imagens numa edição.
+- **Anime** uma imagem por 1 a 15 s, ou crie um clipe a partir de uma descrição, em 720p (ou num rascunho barato em 480p).
 - **Dirija um vídeo a partir de referências**: pessoas e produtos consistentes, primeiro e último quadros exatos, quadros-chave, vozes prontas e loops perfeitos.
 - **Finalize localmente, sem gastar cota**: último quadro, junção de clipes, remoção de áudio, reenquadramento, texto exato sobre a imagem, recorte de fundo verde e divisão de uma folha em itens.
 - **Ou só peça ao Claude** para "usar o Grok para…": uma skill roteadora escolhe o comando e as opções, e só age quando você cita o Grok.
@@ -229,6 +229,8 @@ Por padrão, os arquivos vão para `grok-media/` (`--out PASTA` muda isso). O no
 
 Na primeira vez que uma execução salva numa pasta de repositório git que o git não ignora, a saída avisa, uma vez por pasta. O plugin nunca altera o `.gitignore`.
 
+O registro dos jobs — o que o `/grok:status`, o `/grok:result`, o `@last` e o `job:<id>` leem — fica fora do workspace, na pasta de dados do próprio plugin (`~/.claude/plugins/data/grok-madebysandro-grok` quando instalado pelo marketplace). `GROK_PLUGIN_DATA` aponta outro lugar.
+
 ### A biblioteca do projeto
 
 Para personagens, mascotes, produtos e marcas que precisam se manter iguais entre as peças, guarde uma pasta para cada um em `grok-media/library/<nome>/`:
@@ -346,8 +348,9 @@ Uma comparação resumida com as skills do Higgsfield para o Claude Code, confor
 - **Node.js 18.18+**
 - Opcionais, para as ferramentas locais. O plugin não instala nada, e avisa qual falta quando uma ferramenta precisar dele:
   - **ffmpeg** (com ffprobe) para `last-frame`, `concat`, `mute` e `reframe`.
-  - **Python 3 com Pillow, numpy e scipy** para `cutout` e `split`. `GROK_PLUGIN_PYTHON` escolhe outro interpretador em vez do `python3` do PATH.
+  - **Python 3 com Pillow, numpy e scipy** para `cutout` e `split`. Só o Pillow já permite ao `edit` enviar uma foto acima de 400 KB como uma cópia de 1536 px, onde o Grok CLI a reduziria para 768 px. `GROK_PLUGIN_PYTHON` escolhe outro interpretador em vez do `python3` do PATH.
   - **Google Chrome ou Chromium** para o `overlay`. O plugin procura o app do macOS e depois `google-chrome` ou `chromium` no PATH; `CHROME_PATH` aponta um executável específico. Ele sempre roda sem janela, com um perfil descartável, e nunca mexe no seu perfil do Chrome nem no seu keychain.
+- O `/grok:setup` lê a lista pública de modelos da xAI em docs.x.ai, sem credenciais, para avisar quando sai um modelo do Imagine mais novo. `GROK_PLUGIN_DOCS_URL=off` desliga essa consulta.
 
 ### Trocando do plugin original
 
@@ -367,11 +370,11 @@ node plugins/grok/scripts/grok-companion.mjs setup
 node plugins/grok/scripts/grok-companion.mjs image "a red apple" --out ./shots --json
 ```
 
-A estrutura do código está descrita na seção "Development" do [README em inglês](README.md#development). As notas de projeto desta versão estão em [`docs/spec-paridade-higgsfield.md`](docs/spec-paridade-higgsfield.md).
+A estrutura do código está descrita na seção "Development" do [README em inglês](README.md#development). As notas de projeto da 2.0.0 estão em [`docs/spec-paridade-higgsfield.md`](docs/spec-paridade-higgsfield.md). A calibração da 3.0.0, com os testes ao vivo que a embasam, está em [`docs/live-tests.md`](docs/live-tests.md) e no [CHANGELOG](plugins/grok/CHANGELOG.md).
 
 ## Notas do fork e licença
 
-Este é o [`madebysandro/grok-plugin-cc`](https://github.com/madebysandro/grok-plugin-cc), um fork do [`arielaizn/grok-plugin-cc`](https://github.com/arielaizn/grok-plugin-cc) de **Ariel Aizenshtat**, que escreveu o plugin original (1.0.0), por sua vez construído no formato do [`openai/codex-plugin-cc`](https://github.com/openai/codex-plugin-cc). A versão 2.0.0 é a primeira do fork: ela busca a experiência das skills do Higgsfield (poucos comandos de geração, ferramentas locais que não precisam de IA e uma skill roteadora que o Claude segue) usando só a assinatura do Grok. Todas as mudanças estão no [CHANGELOG](plugins/grok/CHANGELOG.md), em inglês.
+Este é o [`madebysandro/grok-plugin-cc`](https://github.com/madebysandro/grok-plugin-cc), um fork do [`arielaizn/grok-plugin-cc`](https://github.com/arielaizn/grok-plugin-cc) de **Ariel Aizenshtat**, que escreveu o plugin original (1.0.0), por sua vez construído no formato do [`openai/codex-plugin-cc`](https://github.com/openai/codex-plugin-cc). A versão 2.0.0 é a primeira do fork: ela busca a experiência das skills do Higgsfield (poucos comandos de geração, ferramentas locais que não precisam de IA e uma skill roteadora que o Claude segue) usando só a assinatura do Grok. A versão 3.0.0 calibra o plugin para o Image 2.0 e para o que o Grok CLI consegue pedir a ele, e guarda os registros na pasta de dados do próprio plugin. Todas as mudanças estão no [CHANGELOG](plugins/grok/CHANGELOG.md), em inglês.
 
 MIT; veja a [LICENSE](LICENSE), que mantém o aviso de copyright original.
 
