@@ -97,7 +97,8 @@ export function renderMediaFailure({
   sessionId,
   failedCalls = [],
   partialAssets = [],
-  outDir = null
+  outDir = null,
+  notes = []
 }) {
   const headline =
     partialAssets.length > 0
@@ -142,6 +143,10 @@ export function renderMediaFailure({
 
   if (sessionId) {
     lines.push(`Session: ${sessionId}`);
+  }
+
+  for (const note of notes) {
+    lines.push("", note);
   }
 
   return lines.join("\n").trimEnd();

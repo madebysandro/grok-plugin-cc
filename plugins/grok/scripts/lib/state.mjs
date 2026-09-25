@@ -14,6 +14,7 @@ import path from "node:path";
 const STATE_VERSION = 1;
 const STATE_FILE = "state.json";
 const JOBS_DIR = "jobs";
+const NOTICES_DIR = "notices";
 const MAX_JOBS = 40;
 
 /** Walk up to the nearest git root so sibling subdirectories share one job list. */
@@ -64,7 +65,7 @@ export function ensureStateDir(cwd) {
 }
 
 function defaultState() {
-  return { version: STATE_VERSION, jobs: [], notices: {} };
+  return { version: STATE_VERSION, jobs: [] };
 }
 
 export function loadState(cwd) {
@@ -74,11 +75,7 @@ export function loadState(cwd) {
   }
   try {
     const parsed = JSON.parse(fs.readFileSync(file, "utf8"));
-    return {
-      version: STATE_VERSION,
-      jobs: Array.isArray(parsed?.jobs) ? parsed.jobs : [],
-      notices: parsed?.notices && typeof parsed.notices === "object" ? parsed.notices : {}
-    };
+    return { version: STATE_VERSION, jobs: Array.isArray(parsed?.jobs) ? parsed.jobs : [] };
   } catch {
     return defaultState();
   }
@@ -100,7 +97,7 @@ export function saveState(cwd, state) {
     removeIfExists(job.logFile);
   }
 
-  const next = { version: STATE_VERSION, jobs, notices: state.notices ?? {} };
+  const next = { version: STATE_VERSION, jobs };
   fs.writeFileSync(path.join(resolveStateDir(cwd), STATE_FILE), `${JSON.stringify(next, null, 2)}\n`, "utf8");
   return next;
 }
@@ -138,15 +135,23 @@ export function upsertJob(cwd, patch) {
 /**
  * Record that the one-time notice `name` has been shown in this workspace.
  * Returns false when it already had been, so the caller stays quiet.
+ *
+ * Each notice is a marker file created exclusively, so of several runs in
+ * parallel exactly one wins.
  */
 export function claimNotice(cwd, name) {
-  const state = loadState(cwd);
-  if (state.notices[name]) {
-    return false;
+  const dir = path.join(resolveStateDir(cwd), NOTICES_DIR);
+  fs.mkdirSync(dir, { recursive: true });
+  const marker = path.join(dir, createHash("sha256").update(name).digest("hex").slice(0, 32));
+  try {
+    fs.writeFileSync(marker, `${name}\n${new Date().toISOString()}\n`, { flag: "wx" });
+    return true;
+  } catch (error) {
+    if (error.code === "EEXIST") {
+      return false;
+    }
+    throw error;
   }
-  state.notices[name] = new Date().toISOString();
-  saveState(cwd, state);
-  return true;
 }
 
 export function listJobs(cwd) {

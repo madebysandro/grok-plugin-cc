@@ -22,7 +22,7 @@ import {
 } from "./lib/grok.mjs";
 import { MEDIA_TOOL_ALLOWLIST, WORKER_ENV_VAR, buildGrokInvocation } from "./lib/invocation.mjs";
 import { checkCompatibility, referenceInputLimits } from "./lib/compat.mjs";
-import { gitNotice } from "./lib/git-notice.mjs";
+import { gitNotes } from "./lib/git-notice.mjs";
 import { buildReadinessReport } from "./lib/readiness.mjs";
 import {
   extractAgentMessage,
@@ -141,12 +141,6 @@ function requireGrok() {
     );
   }
   return binary;
-}
-
-/** The once-per-workspace note when `saved` files land in a git repository that does not ignore them. */
-function gitNotes(cwd, outDir, saved) {
-  const notice = gitNotice(cwd, outDir, saved.map((asset) => asset.file));
-  return notice ? [notice] : [];
 }
 
 /** Shared driver for the media commands. */
@@ -272,8 +266,6 @@ async function runMediaCommand({ command, options, positionals, cwd, promptBuild
       meta: { command, requestedPrompt: prompt, sessionId, ...spec, costUsd: Number.isFinite(costUsd) ? costUsd : null }
     });
 
-    upsertJob(cwd, { id: jobId, status: "completed", assetCount: saved.length, sessionId, files: saved.map((asset) => asset.file) });
-
     const notes = [];
     if (missing.length > 0) {
       notes.push(`Note: ${missing.length} generated file(s) were reported by Grok but no longer exist on disk.`);
@@ -281,7 +273,10 @@ async function runMediaCommand({ command, options, positionals, cwd, promptBuild
     if (failedCalls.length > 0) {
       notes.push(`Note: ${failedCalls.length} tool call(s) failed; the files above are the ones that succeeded.`);
     }
-    notes.push(...gitNotes(cwd, outDir, saved));
+    notes.push(...gitNotes(cwd, outDir, saved.map((asset) => asset.file)));
+
+    // The notes go into the job too, so /grok:result shows them after a background run.
+    upsertJob(cwd, { id: jobId, status: "completed", assetCount: saved.length, sessionId, files: saved.map((asset) => asset.file), notes });
 
     emit({
       json,
@@ -334,17 +329,18 @@ async function runMediaCommand({ command, options, positionals, cwd, promptBuild
     });
   }
 
+  const notes = gitNotes(cwd, outDir, saved.map((asset) => asset.file));
   upsertJob(cwd, {
     id: jobId,
     status: saved.length > 0 ? "partial" : "failed",
     assetCount: saved.length,
     sessionId,
     reason,
-    files: saved.map((asset) => asset.file)
+    files: saved.map((asset) => asset.file),
+    notes
   });
 
-  const notes = gitNotes(cwd, outDir, saved);
-  const text = [renderMediaFailure({ title, reason, hint, agentMessage, sessionId, failedCalls, partialAssets: saved, outDir }), ...notes].join("\n\n");
+  const text = renderMediaFailure({ title, reason, hint, agentMessage, sessionId, failedCalls, partialAssets: saved, outDir, notes });
   if (json) {
     emit({
       json,
@@ -369,7 +365,10 @@ async function commandLocalTool({ command, options, positionals, cwd }) {
     fail(error.message, error.exitCode);
   }
   const { jobId, outDir, assets, elapsedMs } = result;
-  const notes = [...result.notes, ...gitNotes(cwd, outDir, assets)];
+  const notes = [...result.notes, ...gitNotes(cwd, outDir, assets.map((asset) => asset.file))];
+  if (notes.length > 0) {
+    upsertJob(cwd, { id: jobId, notes });
+  }
   emit({
     json: Boolean(options.json),
     payload: { ok: true, command, jobId, outDir, elapsedMs, assets, notes },
@@ -489,6 +488,9 @@ function commandResult({ options, positionals, cwd }) {
 
   if (job.reason) {
     lines.push("", job.reason);
+  }
+  for (const note of job.notes ?? []) {
+    lines.push("", note);
   }
   if (job.status === "running" && job.logFile && fs.existsSync(job.logFile)) {
     const tail = fs.readFileSync(job.logFile, "utf8").split("\n").slice(-12).join("\n").trim();

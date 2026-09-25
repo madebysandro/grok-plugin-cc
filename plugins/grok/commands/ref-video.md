@@ -44,7 +44,7 @@ Bash({
 })
 ```
 
-The long `timeout` matters: the Bash tool's default of 2 minutes can cut a slow run short.
+The long `timeout` matters: the Bash tool's default of 2 minutes can cut a slow run short. Ten minutes is the most it allows, below the companion's own 20-minute limit for video, so a run you expect to be unusually slow belongs in the background.
 
 In the background only when the user passed `--background` or asked for it, or for a batch of several clips — launch it and stop there, do not poll in the same turn:
 

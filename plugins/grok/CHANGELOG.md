@@ -48,9 +48,9 @@ One run on each side, so treat the times as indicative. The drop in offered tool
 
 ### Foreground by default, and a one-time git notice
 
-- The generation commands (`image`, `edit`, `animate`, `video`, `ref-video`) run in the foreground, with a long Bash timeout so a slow clip is not cut short, and go to the background only when the user passes `--background` or asks for it, or for a batch. The local tools already ran in the foreground.
-- `--background` is accepted and ignored by the companion: slash commands pass `$ARGUMENTS` through, and the flag used to end up in the prompt sent to Grok.
-- When a run — a generation, a partial one, or a local tool — saves into a folder of a git repository that git does not ignore (`git check-ignore`), its output says so once per workspace; the plugin state remembers it. Outside a repository, with the folder ignored, or without git, nothing is said. `.gitignore` is never touched.
+- The generation commands (`image`, `edit`, `animate`, `video`, `ref-video`) run in the foreground, with the Bash tool's longest timeout (10 minutes, where the default is 2), and go to the background only when the user passes `--background` or asks for it, or for a batch. The local tools already ran in the foreground.
+- `--background` no longer ends up in the prompt sent to Grok: slash commands pass `$ARGUMENTS` through, and the companion now takes the flag out (the local tools, which always run in the foreground, refuse it).
+- When a run — a generation, a partial one, or a local tool — saves into a folder of a git repository and git would pick up any of the files, or the manifest (`git check-ignore`), its output says so, once per folder in each workspace. The note is kept with the job, so `/grok:result` shows it after a background run, and parallel runs show it only once. Outside a repository, with everything ignored, or without git, nothing is said. `.gitignore` is never touched.
 
 ## 1.0.0
 

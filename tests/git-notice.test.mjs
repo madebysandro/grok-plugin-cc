@@ -11,7 +11,7 @@ const HAS_GIT = spawnSync("git", ["--version"]).status === 0;
 const needsGit = { skip: HAS_GIT ? false : "git not found on PATH; git notice tests skipped" };
 
 const IMAGE_CALL = [{ tool: "image_gen" }];
-const NOTICE = /is inside the git repository .+ and git does not ignore it/;
+const NOTICE = /git repository at .+ git does not ignore/;
 
 /** Make the sandbox workspace a git repository, optionally with a .gitignore. */
 function gitInit(sandbox, gitignore = null) {
@@ -29,8 +29,7 @@ test("the first run that saves into an unignored grok-media/ of a git repo says 
   const first = await generate(sandbox, ["image", "a red kite"], IMAGE_CALL);
   const second = await generate(sandbox, ["image", "a blue boat"], IMAGE_CALL);
 
-  assert.match(first.stdout, NOTICE);
-  assert.match(first.stdout, /grok-media\//);
+  assert.match(first.stdout, /Note: grok-media\/ is inside the git repository/);
   assert.doesNotMatch(second.stdout, NOTICE);
   assert.equal(fs.existsSync(path.join(sandbox.workspace, ".gitignore")), false, "the plugin must never write a .gitignore");
 });
@@ -61,8 +60,7 @@ test("--out into an unignored folder is noted even when grok-media/ is ignored",
 
   const { notes } = JSON.parse(stdout);
   assert.equal(notes.length, 1);
-  assert.match(notes[0], NOTICE);
-  assert.match(notes[0], /renders\//);
+  assert.match(notes[0], /^Note: renders\/ is inside the git repository/);
 });
 
 const HAS_FFMPEG = spawnSync("ffmpeg", ["-version"]).status === 0;
@@ -95,4 +93,66 @@ test("a run that keeps only part of what it made still gets the note", needsGit,
 
   assert.match(stdout, /intermediate file was kept/);
   assert.match(stdout, NOTICE);
+});
+
+test("parallel runs still show the note only once", needsGit, async (t) => {
+  const sandbox = createSandbox(t);
+  gitInit(sandbox);
+  sandbox.scenario({ calls: IMAGE_CALL });
+
+  const runs = await Promise.all([1, 2, 3, 4].map((n) => sandbox.run(["image", `kite ${n}`])));
+
+  assert.deepEqual(runs.map((run) => run.code), [0, 0, 0, 0]);
+  assert.equal(runs.filter((run) => NOTICE.test(run.stdout)).length, 1);
+});
+
+test("/grok:result shows the note of a run that went to the background", needsGit, async (t) => {
+  const sandbox = createSandbox(t);
+  gitInit(sandbox);
+
+  const { stdout } = await generate(sandbox, ["image", "a red kite", "--json"], IMAGE_CALL);
+  const result = await sandbox.run(["result", JSON.parse(stdout).jobId]);
+
+  assert.match(result.stdout, NOTICE);
+});
+
+test("every file a run saves is checked, and the manifest too", needsGit, async (t) => {
+  const sandbox = createSandbox(t);
+  gitInit(sandbox, "*.jpg\n");
+  const video = await generate(sandbox, ["video", "a kite at dusk", "--out", "clips"], [{ tool: "image_gen" }, { tool: "image_to_video" }]);
+
+  const other = createSandbox(t);
+  gitInit(other, "*.jpg\n");
+  const image = await generate(other, ["image", "a red kite"], IMAGE_CALL);
+
+  assert.match(video.stdout, NOTICE, "the still is ignored, the clip is not");
+  assert.match(image.stdout, NOTICE, "the image is ignored, grok-manifest.json is not");
+});
+
+test("each folder gets its own note, once", needsGit, async (t) => {
+  const sandbox = createSandbox(t);
+  gitInit(sandbox);
+
+  const renders = await generate(sandbox, ["image", "a red kite", "--out", "renders"], IMAGE_CALL);
+  const media = await generate(sandbox, ["image", "a blue boat"], IMAGE_CALL);
+  const again = await generate(sandbox, ["image", "a green kite", "--out", "renders"], IMAGE_CALL);
+
+  assert.match(renders.stdout, /Note: renders\/ is inside the git repository/);
+  assert.match(media.stdout, /Note: grok-media\/ is inside the git repository/);
+  assert.doesNotMatch(again.stdout, NOTICE);
+});
+
+test("the note names the folder as git sees it, through a symlink or at the repository's root", needsGit, async (t) => {
+  const sandbox = createSandbox(t);
+  gitInit(sandbox);
+  const link = path.join(path.dirname(sandbox.workspace), "workspace-link");
+  fs.symlinkSync(sandbox.workspace, link);
+  sandbox.scenario({ calls: IMAGE_CALL });
+
+  const viaLink = await sandbox.run(["image", "a red kite"], { env: { CLAUDE_PROJECT_DIR: link } });
+  const atRoot = await sandbox.run(["image", "a blue boat", "--out", "."]);
+
+  assert.match(viaLink.stdout, /add `grok-media\/` to \.gitignore/);
+  assert.match(atRoot.stdout, /the root of the git repository/);
+  assert.doesNotMatch(atRoot.stdout, /`\.\/`/);
 });
