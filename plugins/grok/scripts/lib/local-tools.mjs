@@ -1,6 +1,6 @@
 /**
- * The local utilities — `last-frame`, `concat`, `mute`, `reframe` — that
- * assemble pieces from earlier results without Grok and without quota.
+ * The local utilities (see `LOCAL_TOOLS`) that assemble pieces from earlier
+ * results without Grok and without quota.
  *
  * Each run is recorded like a generation (a job plus a manifest entry, with the
  * tool's `engine` — e.g. `tool: "ffmpeg"` — as the tool that made each file), so
@@ -24,6 +24,7 @@ import {
   reframeMedia,
   stripAudio
 } from "./ffmpeg.mjs";
+import { OVERLAY_POSITIONS, OVERLAY_STYLES, prepareOverlay, renderOverlay } from "./overlay.mjs";
 import { mediaKindOf, resolveLocalInput } from "./refs.mjs";
 import { generateJobId, upsertJob } from "./state.mjs";
 
@@ -60,6 +61,18 @@ function pickChoice(value, choices, flag, fallback) {
   return choice;
 }
 
+/** A render's time limit: whole seconds from 1 to 600, 60 unless given. */
+function pickTimeoutSeconds(value) {
+  if (value === undefined) {
+    return 60;
+  }
+  const seconds = Number(String(value).trim());
+  if (!/^\d+$/.test(String(value).trim()) || seconds < 1 || seconds > 600) {
+    throw new MediaToolError(`--timeout ${value} is not a number of seconds from 1 to 600.`);
+  }
+  return seconds;
+}
+
 async function probeAll(files) {
   const clips = [];
   for (const file of files) {
@@ -70,14 +83,16 @@ async function probeAll(files) {
 
 /**
  * Per command: a title for the report, the program that does the work
- * (`engine`, recorded as each output's tool), what it takes, and two steps.
+ * (`engine`, recorded as each output's tool), what it takes (input files come
+ * from the positionals, or from the option `inputs.option` names), and two steps.
  *
- * `prepare(inputs, options)` checks everything that can refuse the request —
- * probing the inputs if it must — and returns the output's name and the work
- * to do, before any file or directory is created. A tool that writes several
- * files also returns their `count`; they are named `<stem>-1` to `<stem>-N`.
+ * `prepare(inputs, options, { cwd })` checks everything that can refuse the
+ * request — probing the inputs if it must — and returns the output's name and
+ * the work to do, before any file or directory is created. A tool that writes
+ * several files also returns their `count`; they are named `<stem>-1` to `<stem>-N`.
  * `run(inputs, output, work)` writes the output (an array of paths when there
- * is a `count`) and returns what the manifest should record about it.
+ * is a `count`) and returns what the manifest should record about it, plus any
+ * `notes` for the user.
  */
 export const LOCAL_TOOLS = Object.freeze({
   "last-frame": {
@@ -147,6 +162,32 @@ export const LOCAL_TOOLS = Object.freeze({
     }
   },
 
+  overlay: {
+    title: "Overlaid",
+    engine: "chrome",
+    usage:
+      'overlay --image <image> --text "…" [--sub "…"] [--brand brand.json] [--position top|center|bottom] ' +
+      "[--style clean|bold|glass] [--timeout SECS] [--out DIR] [--name SLUG]",
+    inputs: { accept: ["image"], min: 1, max: 1, option: "image" },
+    options: ["image", "text", "sub", "brand", "position", "style", "timeout"],
+    prepare: async ([input], options, { cwd }) => {
+      const text = typeof options.text === "string" ? options.text : "";
+      if (!text.trim()) {
+        throw new MediaToolError(`overlay needs --text. Usage: /grok:${LOCAL_TOOLS.overlay.usage}`);
+      }
+      const settings = {
+        text,
+        sub: typeof options.sub === "string" && options.sub.trim() ? options.sub : null,
+        position: pickChoice(options.position, OVERLAY_POSITIONS, "--position", "bottom"),
+        style: pickChoice(options.style, OVERLAY_STYLES, "--style", "clean"),
+        timeoutMs: pickTimeoutSeconds(options.timeout) * 1000
+      };
+      const brandFile = options.brand === undefined ? null : path.resolve(cwd, String(options.brand));
+      return { stem: `${stemOf(input)}-overlay`, extension: ".png", work: prepareOverlay(input, settings, { brandFile }) };
+    },
+    run: async (inputs, output, work) => renderOverlay(work, output)
+  },
+
   mute: {
     title: "Muted",
     engine: "ffmpeg",
@@ -176,25 +217,27 @@ function refuseForeignOptions(command, tool, options) {
 }
 
 /**
- * Run one local tool over `positionals` (its input files) and record the result.
- * Returns `{ jobId, outDir, assets, elapsedMs }`; throws `MediaToolError`.
+ * Run one local tool over its input files (the positionals, or the option the
+ * tool names) and record the result.
+ * Returns `{ jobId, outDir, assets, elapsedMs, notes }`; throws `MediaToolError`.
  */
 export async function runLocalTool(command, { options, positionals, cwd }) {
   const tool = LOCAL_TOOLS[command];
   refuseForeignOptions(command, tool, options);
-  const { accept, min, max } = tool.inputs;
-  if (positionals.length < min || positionals.length > max) {
+  const { accept, min, max, option } = tool.inputs;
+  const given = option ? [options[option] ?? []].flat() : positionals;
+  if (given.length < min || given.length > max || (option && positionals.length > 0)) {
     throw new MediaToolError(`Usage: /grok:${tool.usage}`);
   }
   let inputs;
   try {
-    inputs = positionals.map((value) => resolveLocalInput(value, cwd, { accept, command }));
+    inputs = given.map((value) => resolveLocalInput(value, cwd, { accept, command }));
   } catch (error) {
     throw new MediaToolError(error.message);
   }
 
   // Everything that can refuse the request runs before the output directory or any file exists.
-  const { stem, extension, work, count } = await tool.prepare(inputs, options);
+  const { stem, extension, work, count } = await tool.prepare(inputs, options, { cwd });
   const outDir = resolveOutDir(options.out, cwd, "grok-media");
   const base = options.name ? slugify(options.name) : stem;
   const outputs =
@@ -204,8 +247,9 @@ export async function runLocalTool(command, { options, positionals, cwd }) {
 
   const startedAt = Date.now();
   let details;
+  let notes;
   try {
-    details = await tool.run(inputs, count === undefined ? outputs[0] : outputs, work);
+    ({ notes = [], ...details } = await tool.run(inputs, count === undefined ? outputs[0] : outputs, work));
   } catch (error) {
     // Leave no half-written file behind to take the name the next run should get.
     for (const output of outputs) {
@@ -226,5 +270,5 @@ export async function runLocalTool(command, { options, positionals, cwd }) {
   upsertJob(cwd, { id: jobId, command, status: "completed", outDir, assetCount: outputs.length, files: outputs });
   writeManifest({ outDir, entries: assets, meta: { command, inputs, ...details } });
 
-  return { jobId, outDir, assets, elapsedMs };
+  return { jobId, outDir, assets, elapsedMs, notes };
 }
