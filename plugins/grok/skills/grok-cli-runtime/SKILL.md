@@ -62,7 +62,7 @@ What `grok inspect --json` reports under those variables (1.0.41, 2026-09-24):
 
 ### Recursion guard
 
-Every Grok process the plugin starts, `ask` included, gets `GROK_PLUGIN_CC_WORKER=1`. The companion refuses media commands when that variable is set, so a Grok run the plugin started can never call back into the plugin and start another quota-spending Grok run. `ask` is not refused: it starts no media generation of its own. It is not free, though — like every Grok run, its turns draw on the plan's weekly pool, which Chat, Imagine, Voice and Build share.
+Every Grok process the plugin starts, `ask` included, gets `GROK_PLUGIN_CC_WORKER=1`. The companion refuses the media commands **and `ask`** when that variable is set, so a Grok run the plugin started can never call back into the plugin and start another Grok run — Grok → `ask` → Grok could loop just as well as a media command, and every run draws on the plan's weekly pool, which Chat, Imagine, Voice and Build share.
 
 The guard only recognises Grok runs the plugin started. A Grok session the user opens themselves, with this Claude plugin loaded, carries no marker and is not refused.
 
