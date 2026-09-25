@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 
 export const PLUGIN_ROOT = path.resolve(import.meta.dirname, "..", "plugins", "grok");
+export const REPO_ROOT = path.resolve(PLUGIN_ROOT, "..", "..");
 export const LIB = path.join(PLUGIN_ROOT, "scripts", "lib");
 
 export function makeTempDir(prefix = "grok-plugin-test-") {
@@ -98,9 +99,14 @@ export function agentMessage(text) {
   return updateEntry({ sessionUpdate: "agent_message_chunk", content: { type: "text", text } });
 }
 
+/** Where Grok keeps a session: `<root>/sessions/<encoded cwd>/<session-id>`. */
+export function sessionDirFor(root, sessionId, cwd) {
+  return path.join(root, "sessions", encodeURIComponent(cwd), sessionId);
+}
+
 /** Write updates to a session directory laid out the way Grok does. */
 export function writeSession(root, sessionId, updates, { cwd = "/tmp/workspace" } = {}) {
-  const dir = path.join(root, "sessions", encodeURIComponent(cwd), sessionId);
+  const dir = sessionDirFor(root, sessionId, cwd);
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, "updates.jsonl"), updates.map((entry) => JSON.stringify(entry)).join("\n"), "utf8");
   return dir;

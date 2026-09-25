@@ -11,15 +11,19 @@
 import fs from "node:fs";
 import path from "node:path";
 
-import { parseArgs, parseCount, splitArgumentString } from "./lib/args.mjs";
+import { parseArgs, parseCount, parseWholeNumber, splitArgumentString } from "./lib/args.mjs";
 import {
-  MEDIA_DISALLOWED_TOOLS,
   findGrokBinary,
   getGrokVersion,
   isZeroDataRetentionVideoError,
   readGrokAuth,
+  readGrokPlan,
   runGrokHeadless
 } from "./lib/grok.mjs";
+import { MEDIA_TOOL_ALLOWLIST, WORKER_ENV_VAR, buildGrokInvocation } from "./lib/invocation.mjs";
+import { checkCompatibility, referenceInputLimits } from "./lib/compat.mjs";
+import { gitNotes } from "./lib/git-notice.mjs";
+import { buildReadinessReport } from "./lib/readiness.mjs";
 import {
   extractAgentMessage,
   extractMediaCalls,
@@ -27,7 +31,32 @@ import {
   readSessionUpdates,
   resolveSessionDir
 } from "./lib/session.mjs";
-import { collectAssets, resolveInputImage, resolveOutDir, slugify, writeManifest } from "./lib/assets.mjs";
+import { collectAssets, resolveOutDir, slugify, writeManifest } from "./lib/assets.mjs";
+import {
+  DEFAULT_IMAGE_MODEL,
+  DEFAULT_IMAGE_MODEL_CHOICE,
+  DEFAULT_REFERENCE_ASPECT,
+  DEFAULT_VIDEO_DURATION,
+  DEFAULT_VIDEO_RESOLUTION,
+  DRAFT_VIDEO_RESOLUTION,
+  IMAGE_EDIT_ASPECTS,
+  IMAGE_GEN_ASPECTS,
+  IMAGE_MODEL_CHOICES,
+  IMAGE_TO_VIDEO_DURATIONS,
+  MediaOptionError,
+  OLDER_REFERENCE_IMAGES,
+  REFERENCE_LIMITS,
+  REFERENCE_VIDEO_ASPECTS,
+  REFERENCE_VIDEO_DURATION,
+  SERVER_IMAGE_MODEL,
+  VIDEO_RESOLUTIONS,
+  optionNotApplicable,
+  resolveMediaSpec,
+  resolveReferenceInputs
+} from "./lib/media-spec.mjs";
+import { MediaToolError } from "./lib/ffmpeg.mjs";
+import { LOCAL_TOOLS, runLocalTool } from "./lib/local-tools.mjs";
+import { resolveImageArg } from "./lib/refs.mjs";
 import {
   findJob,
   generateJobId,
@@ -42,13 +71,46 @@ import {
   buildAskPrompt,
   buildEditPrompt,
   buildImagePrompt,
+  buildReferenceVideoPrompt,
   buildVideoPrompt
 } from "./lib/prompts.mjs";
 
-const COMMANDS = new Set(["setup", "image", "edit", "video", "animate", "ask", "status", "result", "cancel", "help"]);
+const COMMANDS = new Set([
+  "setup", "image", "edit", "video", "animate", "ref-video", "ask", "status", "result", "cancel", "help",
+  ...Object.keys(LOCAL_TOOLS)
+]);
+const MEDIA_COMMANDS = new Set(Object.keys(MEDIA_TOOL_ALLOWLIST));
+/** The commands that start a Grok run. */
+const GROK_COMMANDS = new Set([...MEDIA_COMMANDS, "ask"]);
 
-const SHARED_VALUE_OPTIONS = ["out", "aspect", "count", "name", "model", "effort", "timeout", "duration", "job"];
-const SHARED_BOOLEAN_OPTIONS = ["json", "verbatim", "raw", "keep-session", "read-only", "write"];
+const SHARED_VALUE_OPTIONS = [
+  "out", "aspect", "count", "name", "model", "effort", "timeout", "duration", "resolution", "image-model", "job",
+  "first-frame", "last-frame", "mode", "anchor", "text", "sub", "brand", "position", "style",
+  "key", "tolerance", "expect", "bg"
+];
+// `--background` is an instruction to Claude, which runs the command as a background task; it is
+// consumed here so it never ends up in the prompt, and it changes nothing about the run itself.
+const SHARED_BOOLEAN_OPTIONS = ["json", "verbatim", "write", "draft", "loop", "reencode", "background"];
+
+/**
+ * Flags the original plugin parsed but never acted on. Someone used to them may
+ * still type them; they are refused, so they neither vanish nor slip into a
+ * Grok prompt as text. The original plugin's commands other than the
+ * generation ones (`KEEP_DEAD_OPTIONS`) take them as they always did, accepted
+ * and inert (`ask` is read-only by default, so `--read-only` already held).
+ */
+const DEAD_OPTIONS = ["raw", "keep-session", "read-only"];
+const KEEP_DEAD_OPTIONS = new Set(["ask", "status", "result", "cancel", "setup"]);
+
+/**
+ * The options the original plugin's `ask` took (`--background` was in its
+ * argument hint). `ask` keeps taking them exactly as before, whether or not
+ * they do anything for it, and refuses every option added since.
+ */
+const ASK_OPTIONS = new Set([
+  "out", "aspect", "count", "name", "model", "effort", "timeout", "duration", "job",
+  "json", "verbatim", "write", "background", ...DEAD_OPTIONS
+]);
 
 const ZDR_HINT = [
   "Cause: this xAI account has Zero Data Retention enabled",
@@ -103,27 +165,58 @@ function requireGrok() {
   return binary;
 }
 
-/** Shared driver for the four media commands. */
+/** Shared driver for the media commands. */
 async function runMediaCommand({ command, options, positionals, cwd, promptBuilder, title, defaultOutDir, extra = {} }) {
   const binary = requireGrok();
   const json = Boolean(options.json);
 
   const prompt = positionals.join(" ").trim();
   if (!prompt) {
-    fail(`No prompt given. Usage: /grok:${command} <prompt> [--out DIR] [--aspect 16:9]`);
+    fail(`No prompt given. Usage: /grok:${command} <prompt> [options]`);
+  }
+
+  // Options Grok would reject are refused here, before a job exists or quota is spent.
+  let spec;
+  try {
+    spec = resolveMediaSpec(command, options);
+  } catch (error) {
+    if (!(error instanceof MediaOptionError)) {
+      throw error;
+    }
+    fail(error.message);
+  }
+  let count;
+  let timeoutMs;
+  try {
+    count = parseWholeNumber(options.count, { flag: "--count", fallback: 1, min: 1, max: 8 });
+    timeoutMs =
+      parseWholeNumber(options.timeout, { flag: "--timeout", fallback: extra.defaultTimeoutSeconds ?? 900, min: 30, max: 3600 }) * 1000;
+  } catch (error) {
+    fail(error.message);
+  }
+
+  // Input files are checked against the resolved spec (keyframes must fall
+  // inside the clip) — still before any job or Grok run.
+  let inputs = {};
+  if (extra.resolveInputs) {
+    try {
+      inputs = extra.resolveInputs(spec);
+    } catch (error) {
+      fail(String(error?.message ?? error));
+    }
   }
 
   const outDir = resolveOutDir(options.out, cwd, defaultOutDir);
-  const count = parseCount(options.count, { fallback: 1, min: 1, max: 8 });
-  const timeoutMs = parseCount(options.timeout, { fallback: extra.defaultTimeoutSeconds ?? 900, min: 30, max: 3600 }) * 1000;
 
   const grokPrompt = promptBuilder({
     prompt,
-    aspect: options.aspect ?? null,
-    duration: options.duration ?? null,
+    aspect: spec.aspect ?? null,
+    duration: spec.duration ?? null,
+    resolution: spec.resolution ?? null,
     count,
     verbatim: options.verbatim !== false,
-    ...extra.promptExtras
+    ...extra.promptExtras,
+    ...inputs
   });
 
   const jobId = options.job || generateJobId(command);
@@ -144,12 +237,14 @@ async function runMediaCommand({ command, options, positionals, cwd, promptBuild
 
   const run = await runGrokHeadless({
     binary,
-    prompt: grokPrompt,
-    cwd,
-    model: options.model,
-    effort: options.effort,
-    maxTurns: extra.maxTurns ?? 8,
-    disallowedTools: MEDIA_DISALLOWED_TOOLS,
+    ...buildGrokInvocation(command, {
+      prompt: grokPrompt,
+      cwd,
+      model: options.model,
+      effort: options.effort,
+      maxTurns: extra.maxTurns ?? 8,
+      imageModel: spec.imageModel
+    }),
     timeoutMs,
     onStderr: (chunk) => {
       try {
@@ -179,9 +274,9 @@ async function runMediaCommand({ command, options, positionals, cwd, promptBuild
   const failedCalls = calls.filter((call) => call.status === "failed" && call.error);
   const costUsd = Number(run.envelope?.total_cost_usd);
 
-  // `video`/`animate` must actually yield a video. Without this check a run
-  // whose animation step failed would still report success on the intermediate
-  // still frame, which is exactly the wrong answer.
+  // `video`, `animate` and `ref-video` must actually yield a video. Without this
+  // check a run whose animation step failed would still report success on the
+  // intermediate still frame, which is exactly the wrong answer.
   const requiredTypes = extra.requiredOutputTypes ?? null;
   const producedRequired =
     !requiredTypes || saved.some((asset) => requiredTypes.includes(asset.outputType));
@@ -190,10 +285,8 @@ async function runMediaCommand({ command, options, positionals, cwd, promptBuild
     writeManifest({
       outDir,
       entries: saved,
-      meta: { command, requestedPrompt: prompt, sessionId, aspect: options.aspect ?? null, costUsd: Number.isFinite(costUsd) ? costUsd : null }
+      meta: { command, requestedPrompt: prompt, sessionId, ...spec, costUsd: Number.isFinite(costUsd) ? costUsd : null }
     });
-
-    upsertJob(cwd, { id: jobId, status: "completed", assetCount: saved.length, sessionId, files: saved.map((asset) => asset.file) });
 
     const notes = [];
     if (missing.length > 0) {
@@ -202,11 +295,15 @@ async function runMediaCommand({ command, options, positionals, cwd, promptBuild
     if (failedCalls.length > 0) {
       notes.push(`Note: ${failedCalls.length} tool call(s) failed; the files above are the ones that succeeded.`);
     }
+    notes.push(...gitNotes(cwd, outDir, saved.map((asset) => asset.file)));
+
+    // The notes go into the job too, so /grok:result shows them after a background run.
+    upsertJob(cwd, { id: jobId, status: "completed", assetCount: saved.length, sessionId, files: saved.map((asset) => asset.file), notes });
 
     emit({
       json,
-      payload: { ok: true, command, outDir, sessionId, elapsedMs, costUsd: Number.isFinite(costUsd) ? costUsd : null, assets: saved, failedCalls, missing },
-      text: renderMediaResult({ title, saved, outDir, elapsedMs, costUsd, sessionId, notes })
+      payload: { ok: true, command, jobId, outDir, sessionId, elapsedMs, costUsd: Number.isFinite(costUsd) ? costUsd : null, assets: saved, failedCalls, missing, notes },
+      text: renderMediaResult({ title, saved, outDir, elapsedMs, costUsd, sessionId, jobId, notes })
     });
     return;
   }
@@ -250,24 +347,26 @@ async function runMediaCommand({ command, options, positionals, cwd, promptBuild
     writeManifest({
       outDir,
       entries: saved,
-      meta: { command, requestedPrompt: prompt, sessionId, partial: true, costUsd: Number.isFinite(costUsd) ? costUsd : null }
+      meta: { command, requestedPrompt: prompt, sessionId, ...spec, partial: true, costUsd: Number.isFinite(costUsd) ? costUsd : null }
     });
   }
 
+  const notes = gitNotes(cwd, outDir, saved.map((asset) => asset.file));
   upsertJob(cwd, {
     id: jobId,
     status: saved.length > 0 ? "partial" : "failed",
     assetCount: saved.length,
     sessionId,
     reason,
-    files: saved.map((asset) => asset.file)
+    files: saved.map((asset) => asset.file),
+    notes
   });
 
-  const text = renderMediaFailure({ title, reason, hint, agentMessage, sessionId, failedCalls, partialAssets: saved, outDir });
+  const text = renderMediaFailure({ title, reason, hint, agentMessage, sessionId, failedCalls, partialAssets: saved, outDir, notes });
   if (json) {
     emit({
       json,
-      payload: { ok: false, command, reason, hint, sessionId, elapsedMs, failedCalls, agentMessage, zeroDataRetentionBlocked: zdrBlocked, partialAssets: saved, outDir },
+      payload: { ok: false, command, jobId, reason, hint, sessionId, elapsedMs, failedCalls, agentMessage, zeroDataRetentionBlocked: zdrBlocked, partialAssets: saved, outDir, notes },
       text
     });
   } else {
@@ -276,65 +375,50 @@ async function runMediaCommand({ command, options, positionals, cwd, promptBuild
   process.exit(2);
 }
 
-async function commandSetup({ options }) {
-  const json = Boolean(options.json);
-  const binary = findGrokBinary();
-  const version = binary ? await getGrokVersion(binary) : null;
-  const auth = binary ? readGrokAuth() : { authenticated: false, reason: "grok-not-installed" };
-
-  const videoBlocked = Boolean(auth.authenticated && auth.dataRetentionOptOut);
-
-  const checks = [
-    { name: "Grok CLI installed", ok: Boolean(binary), detail: binary ?? "not found on PATH, ~/.grok/bin, or $GROK_BIN" },
-    { name: "Grok CLI runs", ok: Boolean(version), detail: version ?? "could not execute `grok --version`" },
-    { name: "Signed in", ok: Boolean(auth.authenticated), detail: auth.authenticated ? (auth.email ?? "authenticated") : "run `grok login`" },
-    { name: "Image generation", ok: Boolean(binary && auth.authenticated), detail: binary && auth.authenticated ? "available" : "needs an installed, signed-in CLI" },
-    {
-      name: "Video generation",
-      ok: Boolean(binary && auth.authenticated && !videoBlocked),
-      detail: videoBlocked ? "blocked by Zero Data Retention on this account" : binary && auth.authenticated ? "available" : "needs an installed, signed-in CLI"
+/** The local tools (`LOCAL_TOOLS`): ffmpeg, Chrome or Python on local files, no Grok. */
+async function commandLocalTool({ command, options, positionals, cwd }) {
+  let result;
+  try {
+    result = await runLocalTool(command, { options, positionals, cwd });
+  } catch (error) {
+    if (!(error instanceof MediaToolError)) {
+      throw error;
     }
-  ];
-
-  const ready = checks.every((check) => check.ok);
-
-  const lines = ["Grok plugin readiness", ""];
-  for (const check of checks) {
-    lines.push(`  ${check.ok ? "ok  " : "FAIL"}  ${check.name}: ${check.detail}`);
+    // The tool itself failed (exit 2): with --json, say so the way a failed generation does.
+    if (options.json && error.exitCode === 2) {
+      emit({ json: true, payload: { ok: false, command, reason: error.message }, text: error.message });
+      process.exit(2);
+    }
+    fail(error.message, error.exitCode);
   }
-  lines.push("");
-
-  if (!binary) {
-    lines.push("Install the Grok CLI from https://x.ai/build, then run `grok login`.");
-  } else if (!auth.authenticated) {
-    lines.push("Run `!grok login` to sign in.");
-  } else if (videoBlocked) {
-    lines.push("Images and image editing are ready to use.");
-    lines.push("");
-    lines.push("Video generation will fail on this account:");
-    lines.push(indent(ZDR_HINT));
-  } else {
-    lines.push("Everything is ready. Try `/grok:image a neon-lit rooftop at dusk`.");
+  const { jobId, outDir, assets, elapsedMs } = result;
+  const notes = [...result.notes, ...gitNotes(cwd, outDir, assets.map((asset) => asset.file))];
+  if (notes.length > 0) {
+    upsertJob(cwd, { id: jobId, notes });
   }
-
   emit({
-    json,
-    payload: {
-      ready,
-      binary,
-      version,
-      authenticated: Boolean(auth.authenticated),
-      email: auth.email ?? null,
-      teamId: auth.teamId ?? null,
-      zeroDataRetention: Boolean(auth.dataRetentionOptOut),
-      videoAvailable: Boolean(binary && auth.authenticated && !videoBlocked),
-      checks
-    },
-    text: lines.join("\n")
+    json: Boolean(options.json),
+    payload: { ok: true, command, jobId, outDir, elapsedMs, assets, notes },
+    text: renderMediaResult({ title: LOCAL_TOOLS[command].title, saved: assets, outDir, elapsedMs, jobId, notes })
   });
 }
 
+async function commandSetup({ options }) {
+  const binary = findGrokBinary();
+  const version = binary ? await getGrokVersion(binary) : null;
+  const auth = binary ? readGrokAuth() : { authenticated: false, reason: "grok-not-installed" };
+  const plan = binary ? readGrokPlan() : null;
+
+  const { text, payload } = buildReadinessReport({ binary, version, auth, plan, compat: checkCompatibility(), zdrHint: ZDR_HINT });
+  emit({ json: Boolean(options.json), payload, text });
+}
+
 async function commandAsk({ options, positionals, cwd }) {
+  // An option added since the original plugin would do nothing here, even as `--flag=false`; say so rather than drop it.
+  const added = Object.keys(options).find((option) => !ASK_OPTIONS.has(option));
+  if (added) {
+    fail(optionNotApplicable(added, "ask"));
+  }
   const binary = requireGrok();
   const json = Boolean(options.json);
 
@@ -345,6 +429,7 @@ async function commandAsk({ options, positionals, cwd }) {
 
   // Read-only unless the caller explicitly opts into writes.
   const readOnly = options.write !== true;
+  // As in the original plugin: a value out of range is brought into it, and a malformed one means the default.
   const timeoutMs = parseCount(options.timeout, { fallback: 900, min: 30, max: 3600 }) * 1000;
 
   const jobId = generateJobId("ask");
@@ -353,12 +438,14 @@ async function commandAsk({ options, positionals, cwd }) {
   const startedAt = Date.now();
   const run = await runGrokHeadless({
     binary,
-    prompt: buildAskPrompt({ prompt, readOnly }),
-    cwd,
-    model: options.model,
-    effort: options.effort,
-    timeoutMs,
-    disallowedTools: readOnly ? ["write", "search_replace", "delete_file", "edit_notebook"] : []
+    ...buildGrokInvocation("ask", {
+      prompt: buildAskPrompt({ prompt, readOnly }),
+      cwd,
+      model: options.model,
+      effort: options.effort,
+      readOnly
+    }),
+    timeoutMs
   });
 
   const elapsedMs = Date.now() - startedAt;
@@ -371,7 +458,7 @@ async function commandAsk({ options, positionals, cwd }) {
       ? `Grok exceeded the ${Math.round(timeoutMs / 1000)}s timeout.`
       : `Grok exited with code ${run.code}.\n${truncate(run.stderr, 800)}`;
     if (json) {
-      emit({ json, payload: { ok: false, reason: message, sessionId: run.sessionId }, text: message });
+      emit({ json, payload: { ok: false, command: "ask", reason: message, sessionId: run.sessionId }, text: message });
     } else {
       process.stdout.write(`${message}\n`);
     }
@@ -382,7 +469,7 @@ async function commandAsk({ options, positionals, cwd }) {
 
   emit({
     json,
-    payload: { ok: true, text, sessionId: run.sessionId, elapsedMs, costUsd: Number.isFinite(costUsd) ? costUsd : null, readOnly },
+    payload: { ok: true, command: "ask", text, sessionId: run.sessionId, elapsedMs, costUsd: Number.isFinite(costUsd) ? costUsd : null, readOnly },
     text
   });
 }
@@ -425,6 +512,9 @@ function commandResult({ options, positionals, cwd }) {
 
   if (job.reason) {
     lines.push("", job.reason);
+  }
+  for (const note of job.notes ?? []) {
+    lines.push("", note);
   }
   if (job.status === "running" && job.logFile && fs.existsSync(job.logFile)) {
     const tail = fs.readFileSync(job.logFile, "utf8").split("\n").slice(-12).join("\n").trim();
@@ -479,23 +569,71 @@ function commandHelp() {
       "  setup                       Check the Grok CLI is installed, signed in, and what it can generate",
       "  image   <prompt>            Generate image(s) with image_gen",
       "  edit    <prompt> --image P  Edit an existing image with image_edit",
-      "  video   <prompt>            Generate a video with video_gen",
+      "  video   <prompt>            Generate a video (image_gen, then image_to_video)",
       "  animate <prompt> --image P  Animate a still with image_to_video",
+      "  ref-video <prompt> inputs   Video from reference images, pinned frames and voices (reference_to_video)",
       "  ask     <prompt>            Delegate a general task to Grok",
-      "  status                      List background jobs for this workspace",
+      "  status                      List recent jobs of every kind in this workspace",
       "  result  [job-id]            Show a job's output files",
       "  cancel  [job-id]            Cancel a running job",
       "",
+      "Local tools (ffmpeg, Chrome or Python on your files; no Grok, no quota):",
+      "  last-frame <video>          Save the clip's last frame as a PNG",
+      "  concat <video> <video>...   Join clips; --reencode when their size, fps or codecs differ",
+      "  mute <video>                Drop the soundtrack, keeping the video as it is",
+      "  reframe <image|video> --aspect W:H [--mode crop|pad] [--anchor center|top|bottom|left|right]",
+      "                              Crop, or pad on a blurred copy, to another ratio",
+      '  overlay --image I --text "T" [--sub "S"] [--brand brand.json] [--position top|center|bottom] [--style clean|bold|glass]',
+      "          [--timeout SECS]    Exact text over an image, rendered by headless Chrome (timeout 1-600 s, default 60)",
+      "  cutout <image> [--key #00FF00] [--tolerance N]",
+      "                              Clear a flat background to transparency, without a green fringe",
+      "  split <sheet> [--expect N] [--bg auto|#hex] [--tolerance N]",
+      "                              One transparent PNG per item of a sheet, all on one canvas",
+      "",
       "Common options:",
       "  --out DIR        Output directory (default: grok-media/)",
-      "  --aspect RATIO   1:1, 16:9, 9:16, 4:3, 3:4",
-      "  --count N        Number of images (1-8)",
+      `  --aspect RATIO   image, video: ${IMAGE_GEN_ASPECTS.join(", ")}`,
+      `                   edit, with 2+ images only: ${IMAGE_EDIT_ASPECTS.join(", ")}`,
+      "                   (animate keeps the source image's shape)",
+      "  --count N        image, edit: number of results (1-8)",
       "  --name SLUG      Filename stem",
       "  --model M        Grok model id",
       "  --effort LEVEL   low | medium | high",
-      "  --timeout SECS   Run timeout",
+      "  --timeout SECS   Run timeout, 30-3600; ask brings a value outside that into range,",
+      "                   the other Grok commands refuse it",
       "  --json           Machine-readable output",
-      "  --verbatim=false Let Grok rewrite the prompt instead of passing it through"
+      "  --verbatim=false Let Grok rewrite the prompt instead of passing it through",
+      "",
+      "Image model (image, edit, and video's opening frame):",
+      `  --image-model M  ${IMAGE_MODEL_CHOICES.join(", ")} (default ${DEFAULT_IMAGE_MODEL_CHOICE}, i.e. ${DEFAULT_IMAGE_MODEL};`,
+      `                   ${SERVER_IMAGE_MODEL} passes no override, so xAI's current default applies)`,
+      "",
+      "Video options (animate, video, ref-video):",
+      `  --duration SECS  ${IMAGE_TO_VIDEO_DURATIONS.join(" or ")} (default ${DEFAULT_VIDEO_DURATION});`,
+      `                   ref-video: ${REFERENCE_VIDEO_DURATION.min}-${REFERENCE_VIDEO_DURATION.max} (default ${DEFAULT_VIDEO_DURATION})`,
+      `  --resolution R   ${VIDEO_RESOLUTIONS.join(" or ")} (default ${DEFAULT_VIDEO_RESOLUTION}; the CLI offers nothing higher)`,
+      `  --draft          A cheap ${DRAFT_VIDEO_RESOLUTION} try-out; ${DEFAULT_VIDEO_DURATION} s unless --duration is given,`,
+      "                   and not combinable with --resolution",
+      "",
+      "ref-video inputs (give at least one; tag images <IMAGE_i> and voices <AUDIO_i> in the prompt):",
+      `  --image P        Reference image, repeatable (up to ${REFERENCE_LIMITS.images}; ${OLDER_REFERENCE_IMAGES} on older Grok CLIs)`,
+      "  --first-frame P  Exact opening frame        --last-frame P  Exact closing frame",
+      `  --keyframe P@S   Image pinned at S seconds, strictly inside the clip, repeatable (up to ${REFERENCE_LIMITS.keyframes})`,
+      `  --voice ID       Preset voice the subject speaks in, repeatable (up to ${REFERENCE_LIMITS.voices}), e.g. ara, eve, leo, rex`,
+      "",
+      "ref-video options:",
+      "  --loop           Use the one --image as both first and last frame, for a seamless loop",
+      `  --aspect RATIO   ${REFERENCE_VIDEO_ASPECTS.join(", ")} (default ${DEFAULT_REFERENCE_ASPECT})`,
+      "",
+      "Inputs (--image, --first-frame, --last-frame, --keyframe, and a local tool's files) take a path",
+      "or an earlier result:",
+      "  @last            The last file the plugin saved in this workspace, by a",
+      "                   generation or a local tool",
+      "  job:<id>         That job's first file (ids are in the output and in status)",
+      "  job:<id>#N       That job's Nth file, counting from 1",
+      "",
+      "The image inputs of edit, animate and ref-video also take a data: URL; overlay's --image",
+      "and the other local tools' files do not."
     ].join("\n") + "\n"
   );
 }
@@ -513,14 +651,42 @@ async function main() {
     fail(`Unknown command: ${command}\nRun with no arguments for usage.`);
   }
 
-  const { options, positionals } = parseArgs(argv.slice(1), {
-    valueOptions: SHARED_VALUE_OPTIONS,
-    booleanOptions: SHARED_BOOLEAN_OPTIONS,
-    repeatOptions: ["image"],
-    aliases: { o: "out", n: "count", m: "model" }
-  });
+  // Recursion guard: this process was started by a Grok run the plugin itself
+  // launched. Going on would start yet another Grok run and spend quota again;
+  // through `ask`, Grok could even call itself in a loop.
+  if (GROK_COMMANDS.has(command) && process.env[WORKER_ENV_VAR]) {
+    fail(
+      [
+        `Refusing to run \`${command}\` inside a Grok run started by this plugin (${WORKER_ENV_VAR} is set).`,
+        "Grok calling back into the plugin would start another Grok run and spend quota again.",
+        "Run the command from Claude Code or a normal shell instead."
+      ].join("\n")
+    );
+  }
+
+  let parsed;
+  try {
+    parsed = parseArgs(argv.slice(1), {
+      valueOptions: SHARED_VALUE_OPTIONS,
+      booleanOptions: [...SHARED_BOOLEAN_OPTIONS, ...DEAD_OPTIONS],
+      repeatOptions: ["image", "keyframe", "voice"],
+      aliases: { o: "out", n: "count", m: "model" }
+    });
+  } catch (error) {
+    fail(error.message);
+  }
+  const { options, positionals } = parsed;
+  const dead = KEEP_DEAD_OPTIONS.has(command) ? undefined : DEAD_OPTIONS.find((option) => options[option] !== undefined);
+  if (dead) {
+    fail(`--${dead} is not an option of this plugin.`);
+  }
 
   const cwd = process.env.CLAUDE_PROJECT_DIR ? path.resolve(process.env.CLAUDE_PROJECT_DIR) : process.cwd();
+
+  if (Object.hasOwn(LOCAL_TOOLS, command)) {
+    await commandLocalTool({ command, options, positionals, cwd });
+    return;
+  }
 
   switch (command) {
     case "setup":
@@ -547,7 +713,7 @@ async function main() {
       }
       let images;
       try {
-        images = rawImages.map((image) => resolveInputImage(image, cwd));
+        images = rawImages.map((image) => resolveImageArg(image, cwd));
       } catch (error) {
         fail(String(error?.message ?? error));
       }
@@ -589,7 +755,7 @@ async function main() {
       }
       let image;
       try {
-        image = resolveInputImage(rawImage, cwd);
+        image = resolveImageArg(rawImage, cwd);
       } catch (error) {
         fail(String(error?.message ?? error));
       }
@@ -610,6 +776,26 @@ async function main() {
       });
       return;
     }
+
+    case "ref-video":
+      await runMediaCommand({
+        command: "ref-video",
+        options,
+        positionals,
+        cwd,
+        promptBuilder: buildReferenceVideoPrompt,
+        title: "Generated video",
+        defaultOutDir: "grok-media",
+        extra: {
+          maxTurns: 5,
+          defaultTimeoutSeconds: 1200,
+          requiredOutputTypes: ["ReferenceToVideo"],
+          // Checked against the reference_to_video this Grok CLI offers (see /grok:setup).
+          resolveInputs: (spec) =>
+            resolveReferenceInputs(options, spec.duration, (value) => resolveImageArg(value, cwd), referenceInputLimits())
+        }
+      });
+      return;
 
     case "ask":
       await commandAsk({ options, positionals, cwd });

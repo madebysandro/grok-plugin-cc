@@ -21,8 +21,9 @@ function block(lines) {
   return lines.filter(Boolean).join("\n");
 }
 
+/** `extra` may hold nulls for rules that do not apply; they are left out. */
 function rulesSection(extra = []) {
-  return block(["Rules:", ...[...extra, ...NO_HANDLING_RULES].map((rule) => `- ${rule}`)]);
+  return block(["Rules:", ...[...extra, ...NO_HANDLING_RULES].filter(Boolean).map((rule) => `- ${rule}`)]);
 }
 
 function finalLine(marker = "DONE") {
@@ -87,7 +88,7 @@ export function buildEditPrompt({ prompt, images, aspect, count = 1, verbatim = 
  * to become a still first, then get animated. Both artefacts are harvested, and
  * the still doubles as the clip's opening keyframe.
  */
-export function buildVideoPrompt({ prompt, aspect, duration, verbatim = true }) {
+export function buildVideoPrompt({ prompt, aspect, duration, resolution, verbatim = true }) {
   return block([
     "Produce one video in two steps.",
     "",
@@ -99,8 +100,9 @@ export function buildVideoPrompt({ prompt, aspect, duration, verbatim = true }) 
       : "Scene to render and animate (you may refine the wording):",
     prompt,
     "",
-    aspect ? `aspect_ratio: ${aspect} (use for both steps)` : null,
-    duration ? `duration: ${duration} seconds` : null,
+    aspect ? `aspect_ratio: ${aspect} (for \`image_gen\`; the video keeps the frame's shape)` : null,
+    duration ? `duration: ${duration} seconds (for \`image_to_video\`)` : null,
+    resolution ? `resolution_name: ${resolution} (for \`image_to_video\` — pass it explicitly, the tool defaults lower)` : null,
     "",
     rulesSection([
       "Call `image_gen` exactly once, then `image_to_video` exactly once.",
@@ -112,8 +114,13 @@ export function buildVideoPrompt({ prompt, aspect, duration, verbatim = true }) 
   ]);
 }
 
-/** Image-to-video via `image_to_video` (or `reference_to_video` for refs). */
-export function buildAnimatePrompt({ prompt, image, aspect, duration, tool = "image_to_video", verbatim = true }) {
+/**
+ * Image-to-video via `image_to_video`.
+ *
+ * No aspect ratio: the tool keeps the source image's shape and has no such
+ * argument, so passing one only invites the agent to improvise.
+ */
+export function buildAnimatePrompt({ prompt, image, duration, resolution, tool = "image_to_video", verbatim = true }) {
   return block([
     `Use the \`${tool}\` tool to animate the supplied image into one video.`,
     "",
@@ -125,12 +132,80 @@ export function buildAnimatePrompt({ prompt, image, aspect, duration, tool = "im
       : "Motion to apply (you may refine the wording):",
     prompt,
     "",
-    aspect ? `aspect_ratio: ${aspect}` : null,
     duration ? `duration: ${duration} seconds` : null,
+    resolution ? `resolution_name: ${resolution} (pass it explicitly, the tool defaults lower)` : null,
     "",
     rulesSection([
       `Call \`${tool}\` exactly once.`,
       "Do not generate a new still image; animate the image given above.",
+      "There is no `video_gen` tool. Do not search for one and do not use `use_tool`.",
+      "If the tool returns an error, report the error text verbatim and stop. Do not retry and do not fall back to another tool."
+    ]),
+    "",
+    finalLine()
+  ]);
+}
+
+/** `--loop`: the video model itself has to be asked for a clip that can repeat. */
+const LOOP_DIRECTION = "Locked camera, seamless loop.";
+
+function withLoopDirection(prompt) {
+  const text = prompt.trim();
+  // No extra period after a sentence that already ends, quoted or not.
+  return `${text}${/[.!?]["'”’)]*$/.test(text) ? "" : "."} ${LOOP_DIRECTION}`;
+}
+
+/**
+ * Reference-driven video via `reference_to_video`: reference images, pinned
+ * first/last frames, mid-clip keyframes, and preset voices in one call.
+ *
+ * The structured arguments go over as JSON — paths and timestamps must reach
+ * the tool exactly — while the prompt stays plain text so it can be verbatim.
+ */
+export function buildReferenceVideoPrompt({
+  prompt,
+  images = [],
+  firstFrame = null,
+  lastFrame = null,
+  keyframes = [],
+  voices = [],
+  aspect,
+  duration,
+  resolution,
+  loop = false,
+  verbatim = true
+}) {
+  const args = { aspect_ratio: aspect, duration, resolution_name: resolution };
+  if (images.length > 0) {
+    args.images = images;
+  }
+  if (firstFrame) {
+    args.first_frame = firstFrame;
+  }
+  if (lastFrame) {
+    args.last_frame = lastFrame;
+  }
+  if (keyframes.length > 0) {
+    args.keyframes = keyframes.map((keyframe) => ({ image: keyframe.image, timestamp_s: keyframe.timestampS }));
+  }
+  if (voices.length > 0) {
+    args.voices = voices;
+  }
+
+  return block([
+    "Use the `reference_to_video` tool to produce one video.",
+    "",
+    "Pass these arguments exactly as given (JSON), in addition to `prompt`:",
+    JSON.stringify(args, null, 2),
+    "",
+    verbatim
+      ? "PROMPT — pass this as the `prompt` argument exactly as written, do not rewrite it:"
+      : "Video to create (you may refine the wording into the `prompt` argument):",
+    loop ? withLoopDirection(prompt) : prompt,
+    "",
+    rulesSection([
+      "Call `reference_to_video` exactly once.",
+      "Do not generate or edit any image first; use the supplied files as they are.",
       "There is no `video_gen` tool. Do not search for one and do not use `use_tool`.",
       "If the tool returns an error, report the error text verbatim and stop. Do not retry and do not fall back to another tool."
     ]),
