@@ -82,7 +82,7 @@ const MEDIA_COMMANDS = new Set(Object.keys(MEDIA_TOOL_ALLOWLIST));
 
 const SHARED_VALUE_OPTIONS = [
   "out", "aspect", "count", "name", "model", "effort", "timeout", "duration", "resolution", "image-model", "job",
-  "first-frame", "last-frame", "mode", "anchor"
+  "first-frame", "last-frame", "mode", "anchor", "text", "sub", "brand", "position", "style"
 ];
 const SHARED_BOOLEAN_OPTIONS = ["json", "verbatim", "raw", "keep-session", "read-only", "write", "draft", "loop", "reencode"];
 
@@ -349,11 +349,11 @@ async function commandLocalTool({ command, options, positionals, cwd }) {
     }
     fail(error.message, error.exitCode);
   }
-  const { jobId, outDir, assets, elapsedMs } = result;
+  const { jobId, outDir, assets, elapsedMs, notes } = result;
   emit({
     json: Boolean(options.json),
-    payload: { ok: true, command, jobId, outDir, elapsedMs, assets },
-    text: renderMediaResult({ title: LOCAL_TOOLS[command].title, saved: assets, outDir, elapsedMs, jobId })
+    payload: { ok: true, command, jobId, outDir, elapsedMs, assets, notes },
+    text: renderMediaResult({ title: LOCAL_TOOLS[command].title, saved: assets, outDir, elapsedMs, jobId, notes })
   });
 }
 
@@ -526,12 +526,14 @@ function commandHelp() {
       "  result  [job-id]            Show a job's output files",
       "  cancel  [job-id]            Cancel a running job",
       "",
-      "Local tools (ffmpeg on your files; no Grok, no quota):",
+      "Local tools (ffmpeg or Chrome on your files; no Grok, no quota):",
       "  last-frame <video>          Save the clip's last frame as a PNG",
       "  concat <video> <video>...   Join clips; --reencode when their size, fps or codecs differ",
       "  mute <video>                Drop the soundtrack, keeping the video as it is",
       "  reframe <image|video> --aspect W:H [--mode crop|pad] [--anchor center|top|bottom|left|right]",
       "                              Crop, or pad on a blurred copy, to another ratio",
+      '  overlay --image I --text "T" [--sub "S"] [--brand brand.json] [--position top|center|bottom] [--style clean|bold|glass]',
+      "                              Exact text over an image, rendered by headless Chrome",
       "",
       "Common options:",
       "  --out DIR        Output directory (default: grok-media/)",

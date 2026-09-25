@@ -15,6 +15,25 @@ So when the output must get specific content *right* — charts from real number
 
 A short headline or a logotype is usually fine. A pricing table is not.
 
+For text laid over a picture — a title, a price, a date — generate the picture without the text and add it with `/grok:overlay`: it renders the exact characters in HTML at the image's own size with headless Chrome, so nothing comes out misspelled.
+
+### brand.json
+
+`/grok:overlay --brand <file>` styles the text from a project's brand kit, conventionally `grok-media/library/<name>/brand.json`:
+
+```json
+{
+  "name": "Café Aurora",
+  "colors": { "primary": "#C0392B", "secondary": "#F5E6CC", "accent": "#F1C40F", "text": "#FFFFFF", "background": "rgba(20, 10, 5, 0.6)" },
+  "fonts": { "heading": "Playfair Display", "body": "Inter" },
+  "logo": "logo.png"
+}
+```
+
+- `colors`: `text` for the title, `accent` for the subtitle (else `text`), `primary` for the `bold` band, `background` and `secondary` for the `glass` panel and its border. Hex, `rgb()`/`rgba()` or colour names.
+- `fonts`: a Google Fonts family name — loaded over the network when rendering — or a path, relative to `brand.json`, to a `.ttf`, `.otf`, `.woff` or `.woff2` file, which is embedded and needs no network. (The file form goes beyond the original convention, for brand fonts that are not on Google Fonts.) A font that does not load is reported, and a fallback is drawn.
+- `logo`: an image path relative to `brand.json`, shown above the title.
+
 ## Structure
 
 Order the prompt roughly: **subject → action or pose → setting → style → composition → lighting and mood → key details.**

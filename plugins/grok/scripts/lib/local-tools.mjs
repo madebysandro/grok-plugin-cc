@@ -9,7 +9,9 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 
+import { parseCount } from "./args.mjs";
 import { resolveOutDir, slugify, uniquePath, writeManifest } from "./assets.mjs";
 import {
   MediaToolError,
@@ -23,6 +25,8 @@ import {
   reframeMedia,
   stripAudio
 } from "./ffmpeg.mjs";
+import { renderPage, requireChrome } from "./html-render.mjs";
+import { BrandError, OVERLAY_POSITIONS, OVERLAY_STYLES, buildOverlayHtml, loadBrand, requestedFonts } from "./overlay.mjs";
 import { mediaKindOf, resolveLocalInput } from "./refs.mjs";
 import { generateJobId, upsertJob } from "./state.mjs";
 
@@ -68,12 +72,14 @@ async function probeAll(files) {
 }
 
 /**
- * Per command: a title for the report, what it takes, and two steps.
+ * Per command: a title for the report, what it takes (input files come from the
+ * positionals, or from the option `inputs.option` names), and two steps.
  *
- * `prepare(inputs, options)` checks everything that can refuse the request —
- * probing the inputs if it must — and returns the output's name and the work
- * to do, before any file or directory is created. `run(inputs, output, work)`
- * writes the output and returns what the manifest should record about it.
+ * `prepare(inputs, options, { cwd })` checks everything that can refuse the
+ * request — probing the inputs if it must — and returns the output's name and
+ * the work to do, before any file or directory is created.
+ * `run(inputs, output, work)` writes the output and returns what the manifest
+ * should record about it, plus any `notes` for the user.
  */
 export const LOCAL_TOOLS = Object.freeze({
   "last-frame": {
@@ -140,6 +146,50 @@ export const LOCAL_TOOLS = Object.freeze({
     }
   },
 
+  overlay: {
+    title: "Overlaid",
+    usage:
+      'overlay --image <image> --text "…" [--sub "…"] [--brand brand.json] [--position top|center|bottom] ' +
+      "[--style clean|bold|glass] [--out DIR] [--name SLUG]",
+    inputs: { accept: ["image"], min: 1, max: 1, option: "image" },
+    options: ["image", "text", "sub", "brand", "position", "style", "timeout"],
+    prepare: async ([input], options, { cwd }) => {
+      const text = typeof options.text === "string" ? options.text : "";
+      if (!text.trim()) {
+        throw new MediaToolError(`overlay needs --text. Usage: /grok:${LOCAL_TOOLS.overlay.usage}`);
+      }
+      const sub = typeof options.sub === "string" && options.sub.trim() ? options.sub : null;
+      const position = pickChoice(options.position, OVERLAY_POSITIONS, "--position", "bottom");
+      const style = pickChoice(options.style, OVERLAY_STYLES, "--style", "clean");
+      let brand = null;
+      if (options.brand !== undefined) {
+        try {
+          brand = loadBrand(path.resolve(cwd, String(options.brand)));
+        } catch (error) {
+          throw error instanceof BrandError ? new MediaToolError(error.message) : error;
+        }
+      }
+      requireChrome();
+      const html = buildOverlayHtml({ imageUrl: pathToFileURL(input).href, text, sub, position, style, brand });
+      const timeoutMs = parseCount(options.timeout, { fallback: 60, min: 1, max: 600 }) * 1000;
+      return { stem: `${stemOf(input)}-overlay`, extension: ".png", work: { html, brand, timeoutMs, text, sub, position, style } };
+    },
+    run: async (inputs, output, { html, brand, timeoutMs, text, sub, position, style }) => {
+      const fonts = requestedFonts(brand);
+      const { width, height, missingFonts } = await renderPage({
+        html,
+        sizeFrom: "img.base",
+        output,
+        fontFamilies: fonts.map((font) => font.family),
+        timeoutMs
+      });
+      const notes = fonts
+        .filter((font) => missingFonts.includes(font.family))
+        .map((font) => `Note: the font "${font.label}" did not load (offline, not a Google Fonts family, or not a usable font file), so a fallback font was used.`);
+      return { text, sub, position, style, brand: brand?.name ?? null, width, height, notes };
+    }
+  },
+
   mute: {
     title: "Muted",
     usage: "mute <video> [--out DIR] [--name SLUG]",
@@ -169,31 +219,33 @@ function refuseForeignOptions(command, tool, options) {
 
 /**
  * Run one local tool over `positionals` (its input files) and record the result.
- * Returns `{ jobId, outDir, assets, elapsedMs }`; throws `MediaToolError`.
+ * Returns `{ jobId, outDir, assets, elapsedMs, notes }`; throws `MediaToolError`.
  */
 export async function runLocalTool(command, { options, positionals, cwd }) {
   const tool = LOCAL_TOOLS[command];
   refuseForeignOptions(command, tool, options);
-  const { accept, min, max } = tool.inputs;
-  if (positionals.length < min || positionals.length > max) {
+  const { accept, min, max, option } = tool.inputs;
+  const given = option ? [options[option] ?? []].flat() : positionals;
+  if (given.length < min || given.length > max || (option && positionals.length > 0)) {
     throw new MediaToolError(`Usage: /grok:${tool.usage}`);
   }
   let inputs;
   try {
-    inputs = positionals.map((value) => resolveLocalInput(value, cwd, { accept, command }));
+    inputs = given.map((value) => resolveLocalInput(value, cwd, { accept, command }));
   } catch (error) {
     throw new MediaToolError(error.message);
   }
 
   // Everything that can refuse the request runs before the output directory or any file exists.
-  const { stem, extension, work } = await tool.prepare(inputs, options);
+  const { stem, extension, work } = await tool.prepare(inputs, options, { cwd });
   const outDir = resolveOutDir(options.out, cwd, "grok-media");
   const output = uniquePath(outDir, options.name ? slugify(options.name) : stem, extension);
 
   const startedAt = Date.now();
   let details;
+  let notes;
   try {
-    details = await tool.run(inputs, output, work);
+    ({ notes = [], ...details } = await tool.run(inputs, output, work));
   } catch (error) {
     // Leave no half-written file behind to take the name the next run should get.
     fs.rmSync(output, { force: true });
@@ -206,5 +258,5 @@ export async function runLocalTool(command, { options, positionals, cwd }) {
   upsertJob(cwd, { id: jobId, command, status: "completed", outDir, assetCount: 1, files: [output] });
   writeManifest({ outDir, entries: assets, meta: { command, inputs, ...details } });
 
-  return { jobId, outDir, assets, elapsedMs };
+  return { jobId, outDir, assets, elapsedMs, notes };
 }
