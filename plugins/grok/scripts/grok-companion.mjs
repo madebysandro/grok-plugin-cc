@@ -413,6 +413,12 @@ async function runMediaCommand({ command, options, positionals, cwd, promptBuild
  * to the still's shape, and say so when the still has none of them.
  */
 function stillAsFirstFrame(image, label) {
+  if (!referenceInputLimits().pinnedFrames) {
+    throw new Error(
+      "This Grok CLI offers the older reference_to_video, which cannot pin a first frame, so animate only makes 6 or 10 s clips. " +
+        "Update the Grok CLI, or use --duration 6 or 10."
+    );
+  }
   const size = readImageSize(image);
   if (!size) {
     throw new Error(

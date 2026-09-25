@@ -3,6 +3,7 @@ import test from "node:test";
 
 import { assertRejectedBeforeGrok, generate, lastGeneration, lastPromptLines, sizedImage, sourceImage } from "./companion-assertions.mjs";
 import { createSandbox } from "./companion-harness.mjs";
+import { OLD_REFERENCE_TO_VIDEO, addSession } from "./grok-fixtures.mjs";
 
 /** The prompt line that sets `key`, e.g. `resolution_name: 720p (...)`, or undefined. */
 function promptSetting(sandbox, key) {
@@ -165,6 +166,19 @@ test("animate through reference_to_video picks the closest aspect ratio, and say
     resolution_name: "480p"
   });
   assert.match(stdout, /Note: reference_to_video, which makes clips of this length, offers no 1170×2532 shape; the clip was asked for at 9:16/);
+});
+
+test("animate refuses other lengths when the installed Grok offers the older reference_to_video, which pins no frame", async (t) => {
+  const sandbox = createSandbox(t);
+  addSession(sandbox, { tools: ["reference_to_video"], parameters: { reference_to_video: OLD_REFERENCE_TO_VIDEO } });
+  const still = sizedImage(sandbox, 1280, 720);
+
+  await assertRejectedBeforeGrok(
+    sandbox,
+    ["animate", "drift", "--image", still, "--duration", "8"],
+    /This Grok CLI offers the older reference_to_video, which cannot pin a first frame, so animate only makes 6 or 10 s clips\./
+  );
+  await generate(sandbox, ["animate", "drift", "--image", still, "--duration", "10"], [{ tool: "image_to_video" }]);
 });
 
 test("animate refuses, for a length made with reference_to_video, a still whose size it cannot read", async (t) => {
