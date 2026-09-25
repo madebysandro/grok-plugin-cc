@@ -11,7 +11,7 @@
 import fs from "node:fs";
 import path from "node:path";
 
-import { parseArgs, parseCount, splitArgumentString } from "./lib/args.mjs";
+import { parseArgs, parseWholeNumber, splitArgumentString } from "./lib/args.mjs";
 import {
   findGrokBinary,
   getGrokVersion,
@@ -85,7 +85,9 @@ const SHARED_VALUE_OPTIONS = [
   "first-frame", "last-frame", "mode", "anchor", "text", "sub", "brand", "position", "style",
   "key", "tolerance", "expect", "bg"
 ];
-const SHARED_BOOLEAN_OPTIONS = ["json", "verbatim", "write", "draft", "loop", "reencode"];
+// `--background` is an instruction to Claude, which runs the command as a background task; it is
+// consumed here so it never ends up in the prompt, and it changes nothing about the run itself.
+const SHARED_BOOLEAN_OPTIONS = ["json", "verbatim", "write", "draft", "loop", "reencode", "background"];
 
 const ZDR_HINT = [
   "Cause: this xAI account has Zero Data Retention enabled",
@@ -160,6 +162,15 @@ async function runMediaCommand({ command, options, positionals, cwd, promptBuild
     }
     fail(error.message);
   }
+  let count;
+  let timeoutMs;
+  try {
+    count = parseWholeNumber(options.count, { flag: "--count", fallback: 1, min: 1, max: 8 });
+    timeoutMs =
+      parseWholeNumber(options.timeout, { flag: "--timeout", fallback: extra.defaultTimeoutSeconds ?? 900, min: 30, max: 3600 }) * 1000;
+  } catch (error) {
+    fail(error.message);
+  }
 
   // Input files are checked against the resolved spec (keyframes must fall
   // inside the clip) — still before any job or Grok run.
@@ -173,8 +184,6 @@ async function runMediaCommand({ command, options, positionals, cwd, promptBuild
   }
 
   const outDir = resolveOutDir(options.out, cwd, defaultOutDir);
-  const count = parseCount(options.count, { fallback: 1, min: 1, max: 8 });
-  const timeoutMs = parseCount(options.timeout, { fallback: extra.defaultTimeoutSeconds ?? 900, min: 30, max: 3600 }) * 1000;
 
   const grokPrompt = promptBuilder({
     prompt,
@@ -383,7 +392,12 @@ async function commandAsk({ options, positionals, cwd }) {
 
   // Read-only unless the caller explicitly opts into writes.
   const readOnly = options.write !== true;
-  const timeoutMs = parseCount(options.timeout, { fallback: 900, min: 30, max: 3600 }) * 1000;
+  let timeoutMs;
+  try {
+    timeoutMs = parseWholeNumber(options.timeout, { flag: "--timeout", fallback: 900, min: 30, max: 3600 }) * 1000;
+  } catch (error) {
+    fail(error.message);
+  }
 
   const jobId = generateJobId("ask");
   upsertJob(cwd, { id: jobId, command: "ask", status: "running", prompt: truncate(prompt, 300), pid: process.pid });
@@ -545,11 +559,11 @@ function commandHelp() {
       `  --aspect RATIO   image, video: ${IMAGE_GEN_ASPECTS.join(", ")}`,
       `                   edit, with 2+ images only: ${IMAGE_EDIT_ASPECTS.join(", ")}`,
       "                   (animate keeps the source image's shape)",
-      "  --count N        Number of images (1-8)",
+      "  --count N        image, edit: number of results (1-8)",
       "  --name SLUG      Filename stem",
       "  --model M        Grok model id",
       "  --effort LEVEL   low | medium | high",
-      "  --timeout SECS   Run timeout",
+      "  --timeout SECS   Run timeout (30-3600)",
       "  --json           Machine-readable output",
       "  --verbatim=false Let Grok rewrite the prompt instead of passing it through",
       "",

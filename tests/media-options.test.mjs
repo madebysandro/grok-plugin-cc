@@ -220,3 +220,38 @@ test("a flag the plugin does not have reaches Grok in the prompt rather than van
 
   assert.ok(lastPromptLines(sandbox).includes("a red kite --raw"), lastPromptLines(sandbox).join("\n"));
 });
+
+test("animate refuses a second --image instead of animating only the first", async (t) => {
+  const sandbox = createSandbox(t);
+  const image = sourceImage(sandbox);
+
+  await assertRejectedBeforeGrok(
+    sandbox,
+    ["animate", "drift", "--image", image, "--image", image],
+    /animate takes one --image \(the still to animate\); got 2\./
+  );
+});
+
+test("--count and --timeout values out of range are refused, not quietly changed", async (t) => {
+  const sandbox = createSandbox(t);
+
+  const refusals = [
+    [["image", "a red kite", "--count", "20"], /--count 20 is not a whole number from 1 to 8\./],
+    [["image", "a red kite", "--count", "abc"], /--count abc is not a whole number from 1 to 8\./],
+    [["image", "a red kite", "--timeout", "5"], /--timeout 5 is not a whole number from 30 to 3600\./],
+    [["ask", "summarise the README", "--timeout", "forever"], /--timeout forever is not a whole number from 30 to 3600\./]
+  ];
+  for (const [args, pattern] of refusals) {
+    await assertRejectedBeforeGrok(sandbox, args, pattern);
+  }
+});
+
+test("--background is for Claude, which runs the command in the background; it never reaches Grok", async (t) => {
+  const sandbox = createSandbox(t);
+
+  await generate(sandbox, ["image", "a red kite", "--background"], [{ tool: "image_gen" }]);
+
+  const lines = lastPromptLines(sandbox);
+  assert.ok(lines.includes("a red kite"), lines.join("\n"));
+  assert.ok(!lines.some((line) => line.includes("--background")), lines.join("\n"));
+});
