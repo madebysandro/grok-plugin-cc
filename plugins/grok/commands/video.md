@@ -23,7 +23,19 @@ Argument handling:
 - Invalid values are refused before Grok runs, with a message saying what to use instead; relay it and fix the flag rather than retrying as-is.
 - If the user already has a still they want animated, use `/grok:animate` instead — it skips the generation step and animates their exact image.
 
-Execution — this takes a few minutes, so prefer the background unless the user asked to wait:
+Execution — in the foreground by default, so the user gets the clip as soon as it lands; a clip takes about a minute (live runs took 45–65 s).
+
+```typescript
+Bash({
+  command: `node "${CLAUDE_PLUGIN_ROOT}/scripts/grok-companion.mjs" video $ARGUMENTS`,
+  description: "Grok video generation",
+  timeout: 600000
+})
+```
+
+The long `timeout` matters: the Bash tool's default of 2 minutes can cut a slow run short.
+
+In the background only when the user passed `--background` or asked for it, or for a batch of several clips — launch it and stop there, do not poll in the same turn:
 
 ```typescript
 Bash({
@@ -33,11 +45,7 @@ Bash({
 })
 ```
 
-Foreground, when the user passed `--wait` or explicitly asked to wait:
-
-```bash
-node "${CLAUDE_PLUGIN_ROOT}/scripts/grok-companion.mjs" video $ARGUMENTS
-```
+Then tell the user it is running and that `/grok:status` shows progress.
 
 Output rules:
 

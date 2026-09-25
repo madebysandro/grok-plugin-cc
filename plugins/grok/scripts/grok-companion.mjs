@@ -22,6 +22,7 @@ import {
 } from "./lib/grok.mjs";
 import { MEDIA_TOOL_ALLOWLIST, WORKER_ENV_VAR, buildGrokInvocation } from "./lib/invocation.mjs";
 import { checkCompatibility, referenceInputLimits } from "./lib/compat.mjs";
+import { gitNotice } from "./lib/git-notice.mjs";
 import { buildReadinessReport } from "./lib/readiness.mjs";
 import {
   extractAgentMessage,
@@ -85,7 +86,9 @@ const SHARED_VALUE_OPTIONS = [
   "first-frame", "last-frame", "mode", "anchor", "text", "sub", "brand", "position", "style",
   "key", "tolerance", "expect", "bg"
 ];
-const SHARED_BOOLEAN_OPTIONS = ["json", "verbatim", "raw", "keep-session", "read-only", "write", "draft", "loop", "reencode"];
+// `--background` is the slash command's cue to run the companion in the background;
+// it is accepted and ignored here, so it never ends up in the prompt.
+const SHARED_BOOLEAN_OPTIONS = ["json", "verbatim", "raw", "keep-session", "read-only", "write", "draft", "loop", "reencode", "background"];
 
 const ZDR_HINT = [
   "Cause: this xAI account has Zero Data Retention enabled",
@@ -138,6 +141,12 @@ function requireGrok() {
     );
   }
   return binary;
+}
+
+/** The once-per-workspace note when `saved` files land in a git repository that does not ignore them. */
+function gitNotes(cwd, outDir, saved) {
+  const notice = gitNotice(cwd, outDir, saved.map((asset) => asset.file));
+  return notice ? [notice] : [];
 }
 
 /** Shared driver for the media commands. */
@@ -265,10 +274,11 @@ async function runMediaCommand({ command, options, positionals, cwd, promptBuild
     if (failedCalls.length > 0) {
       notes.push(`Note: ${failedCalls.length} tool call(s) failed; the files above are the ones that succeeded.`);
     }
+    notes.push(...gitNotes(cwd, outDir, saved));
 
     emit({
       json,
-      payload: { ok: true, command, jobId, outDir, sessionId, elapsedMs, costUsd: Number.isFinite(costUsd) ? costUsd : null, assets: saved, failedCalls, missing },
+      payload: { ok: true, command, jobId, outDir, sessionId, elapsedMs, costUsd: Number.isFinite(costUsd) ? costUsd : null, assets: saved, failedCalls, missing, notes },
       text: renderMediaResult({ title, saved, outDir, elapsedMs, costUsd, sessionId, jobId, notes })
     });
     return;
@@ -326,11 +336,12 @@ async function runMediaCommand({ command, options, positionals, cwd, promptBuild
     files: saved.map((asset) => asset.file)
   });
 
-  const text = renderMediaFailure({ title, reason, hint, agentMessage, sessionId, failedCalls, partialAssets: saved, outDir });
+  const notes = gitNotes(cwd, outDir, saved);
+  const text = [renderMediaFailure({ title, reason, hint, agentMessage, sessionId, failedCalls, partialAssets: saved, outDir }), ...notes].join("\n\n");
   if (json) {
     emit({
       json,
-      payload: { ok: false, command, jobId, reason, hint, sessionId, elapsedMs, failedCalls, agentMessage, zeroDataRetentionBlocked: zdrBlocked, partialAssets: saved, outDir },
+      payload: { ok: false, command, jobId, reason, hint, sessionId, elapsedMs, failedCalls, agentMessage, zeroDataRetentionBlocked: zdrBlocked, partialAssets: saved, outDir, notes },
       text
     });
   } else {
@@ -350,7 +361,8 @@ async function commandLocalTool({ command, options, positionals, cwd }) {
     }
     fail(error.message, error.exitCode);
   }
-  const { jobId, outDir, assets, elapsedMs, notes } = result;
+  const { jobId, outDir, assets, elapsedMs } = result;
+  const notes = [...result.notes, ...gitNotes(cwd, outDir, assets)];
   emit({
     json: Boolean(options.json),
     payload: { ok: true, command, jobId, outDir, elapsedMs, assets, notes },

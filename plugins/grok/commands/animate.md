@@ -18,7 +18,19 @@ Argument handling:
 - `--duration` is 6 or 10 seconds (default 6). `--resolution` is 480p or 720p (default 720p) — the CLI goes no higher; 1080p in a Grok plan applies to the Grok app only.
 - `--draft` makes a cheap 480p try-out, at 6 s unless `--duration` is given. It cannot be combined with `--resolution`.
 
-Execution — this takes a few minutes, so prefer the background:
+Execution — in the foreground by default, so the user gets the clip as soon as it lands; a clip takes about a minute (live runs took 45–65 s).
+
+```typescript
+Bash({
+  command: `node "${CLAUDE_PLUGIN_ROOT}/scripts/grok-companion.mjs" animate $ARGUMENTS`,
+  description: "Grok image-to-video",
+  timeout: 600000
+})
+```
+
+The long `timeout` matters: the Bash tool's default of 2 minutes can cut a slow run short.
+
+In the background only when the user passed `--background` or asked for it, or for a batch of several clips — launch it and stop there, do not poll in the same turn:
 
 ```typescript
 Bash({
@@ -28,11 +40,7 @@ Bash({
 })
 ```
 
-Foreground, when the user asked to wait:
-
-```bash
-node "${CLAUDE_PLUGIN_ROOT}/scripts/grok-companion.mjs" animate $ARGUMENTS
-```
+Then tell the user it is running and that `/grok:status` shows progress.
 
 Output rules:
 

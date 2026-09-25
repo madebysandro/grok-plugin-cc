@@ -18,13 +18,19 @@ Argument handling:
 - Pass the instruction through verbatim. Describe only what changes — `image_edit` preserves everything the instruction does not mention, so extra scene description works against the edit.
 - Use this, not `/grok:image`, whenever there is a source image: re-generating from scratch will not preserve the subject.
 
-Execution — foreground by default, roughly 25 seconds:
+Execution — in the foreground by default, so the user sees the result right away; an edit takes roughly 25 seconds.
 
-```bash
-node "${CLAUDE_PLUGIN_ROOT}/scripts/grok-companion.mjs" edit $ARGUMENTS
+```typescript
+Bash({
+  command: `node "${CLAUDE_PLUGIN_ROOT}/scripts/grok-companion.mjs" edit $ARGUMENTS`,
+  description: "Grok image edit",
+  timeout: 600000
+})
 ```
 
-Background, when the user asked for it or requested several variations:
+The long `timeout` matters: the Bash tool's default of 2 minutes can cut a slow run short.
+
+In the background only when the user passed `--background` or asked for it, or for a batch (`--count 4` or more, or several separate edits) — launch it and stop there, do not poll in the same turn:
 
 ```typescript
 Bash({
@@ -33,6 +39,8 @@ Bash({
   run_in_background: true
 })
 ```
+
+Then tell the user it is running and that `/grok:status` shows progress.
 
 Output rules:
 

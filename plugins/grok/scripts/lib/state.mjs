@@ -64,7 +64,7 @@ export function ensureStateDir(cwd) {
 }
 
 function defaultState() {
-  return { version: STATE_VERSION, jobs: [] };
+  return { version: STATE_VERSION, jobs: [], notices: {} };
 }
 
 export function loadState(cwd) {
@@ -74,7 +74,11 @@ export function loadState(cwd) {
   }
   try {
     const parsed = JSON.parse(fs.readFileSync(file, "utf8"));
-    return { version: STATE_VERSION, jobs: Array.isArray(parsed?.jobs) ? parsed.jobs : [] };
+    return {
+      version: STATE_VERSION,
+      jobs: Array.isArray(parsed?.jobs) ? parsed.jobs : [],
+      notices: parsed?.notices && typeof parsed.notices === "object" ? parsed.notices : {}
+    };
   } catch {
     return defaultState();
   }
@@ -96,7 +100,7 @@ export function saveState(cwd, state) {
     removeIfExists(job.logFile);
   }
 
-  const next = { version: STATE_VERSION, jobs };
+  const next = { version: STATE_VERSION, jobs, notices: state.notices ?? {} };
   fs.writeFileSync(path.join(resolveStateDir(cwd), STATE_FILE), `${JSON.stringify(next, null, 2)}\n`, "utf8");
   return next;
 }
@@ -129,6 +133,20 @@ export function upsertJob(cwd, patch) {
   }
 
   return saveState(cwd, state);
+}
+
+/**
+ * Record that the one-time notice `name` has been shown in this workspace.
+ * Returns false when it already had been, so the caller stays quiet.
+ */
+export function claimNotice(cwd, name) {
+  const state = loadState(cwd);
+  if (state.notices[name]) {
+    return false;
+  }
+  state.notices[name] = new Date().toISOString();
+  saveState(cwd, state);
+  return true;
 }
 
 export function listJobs(cwd) {

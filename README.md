@@ -132,6 +132,10 @@ xAI requires ZDR callers to supply an upload destination and the CLI exposes no 
 
 **Cost.** Roughly $0.13–$0.18 and 25–35 seconds per image, mostly agent tokens rather than the image. Nothing retries automatically.
 
+**Generations run in the foreground.** An image takes about 30 seconds and a clip about a minute, so the commands wait for the result and show it; they go to the background only when you pass `--background` or ask for it, or for a batch.
+
+**Media inside a git repository.** The first time a run saves into a folder of a git repository that git does not ignore — `grok-media/` or your `--out` — the output says so, once per workspace. The plugin never edits `.gitignore`; add the folder yourself if you want it kept out.
+
 ## Development
 
 ```bash

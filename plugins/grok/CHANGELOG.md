@@ -46,6 +46,12 @@ One run on each side, so treat the times as indicative. The drop in offered tool
 - `split <sheet>` writes one transparent PNG per item, found as separate shapes, following the recipe in Grok's bundled sheet guide: a small piece closer than 3% of the sheet's width to a much bigger item joins it (items of similar size never merge, so a tight grid stays a grid), specks under 0.05% of its area are dropped, items are numbered row by row, and all share one canvas with a margin of about 6%, standing on one baseline. `--expect N` refuses a different count, an item touching the sheet's edge is refused, `--bg auto` reads the background from the corners, and a sheet with transparency is split along it.
 - Both take `@last` and `job:<id>[#N]`, check everything before writing, and record a job and manifest entry with `tool: "python"`. Local tools now name their engine and may write several files, each reachable as `job:<id>#N`.
 
+### Foreground by default, and a one-time git notice
+
+- The generation commands (`image`, `edit`, `animate`, `video`, `ref-video`) run in the foreground, with a long Bash timeout so a slow clip is not cut short, and go to the background only when the user passes `--background` or asks for it, or for a batch. The local tools already ran in the foreground.
+- `--background` is accepted and ignored by the companion: slash commands pass `$ARGUMENTS` through, and the flag used to end up in the prompt sent to Grok.
+- When a run — a generation, a partial one, or a local tool — saves into a folder of a git repository that git does not ignore (`git check-ignore`), its output says so once per workspace; the plugin state remembers it. Outside a repository, with the folder ignored, or without git, nothing is said. `.gitignore` is never touched.
+
 ## 1.0.0
 
 Initial release.

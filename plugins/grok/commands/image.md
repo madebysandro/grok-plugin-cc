@@ -18,17 +18,19 @@ Argument handling:
 - `--aspect` is one of 1:1, 16:9, 9:16, 3:2, 2:3, auto; anything else is refused before Grok runs.
 - If the user wants Grok to elaborate on a terse prompt, they can pass `--verbatim=false`.
 
-Execution:
+Execution — in the foreground by default, so the user sees the result right away; a single image takes roughly 30 seconds.
 
-- A single image takes roughly 30 seconds. Run in the foreground unless the user passed `--background`, or asked for `--count 4` or more.
-
-Foreground:
-
-```bash
-node "${CLAUDE_PLUGIN_ROOT}/scripts/grok-companion.mjs" image $ARGUMENTS
+```typescript
+Bash({
+  command: `node "${CLAUDE_PLUGIN_ROOT}/scripts/grok-companion.mjs" image $ARGUMENTS`,
+  description: "Grok image generation",
+  timeout: 600000
+})
 ```
 
-Background — launch it and stop there, do not poll in the same turn:
+The long `timeout` matters: the Bash tool's default of 2 minutes can cut a slow run short.
+
+In the background only when the user passed `--background` or asked for it, or for a batch (`--count 4` or more, or several separate prompts) — launch it and stop there, do not poll in the same turn:
 
 ```typescript
 Bash({
