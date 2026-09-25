@@ -29,13 +29,18 @@ import {
 } from "./lib/session.mjs";
 import { collectAssets, resolveOutDir, slugify, writeManifest } from "./lib/assets.mjs";
 import {
+  DEFAULT_IMAGE_MODEL,
+  DEFAULT_IMAGE_MODEL_CHOICE,
   DEFAULT_VIDEO_DURATION,
   DEFAULT_VIDEO_RESOLUTION,
   DRAFT_VIDEO_RESOLUTION,
   IMAGE_EDIT_ASPECTS,
   IMAGE_GEN_ASPECTS,
+  IMAGE_MODEL_CHOICES,
   IMAGE_TO_VIDEO_DURATIONS,
   MediaOptionError,
+  SERVER_IMAGE_MODEL,
+  imageModelNotApplicable,
   VIDEO_RESOLUTIONS,
   resolveMediaSpec
 } from "./lib/media-spec.mjs";
@@ -60,7 +65,7 @@ import {
 const COMMANDS = new Set(["setup", "image", "edit", "video", "animate", "ask", "status", "result", "cancel", "help"]);
 const MEDIA_COMMANDS = new Set(Object.keys(MEDIA_TOOL_ALLOWLIST));
 
-const SHARED_VALUE_OPTIONS = ["out", "aspect", "count", "name", "model", "effort", "timeout", "duration", "resolution", "job"];
+const SHARED_VALUE_OPTIONS = ["out", "aspect", "count", "name", "model", "effort", "timeout", "duration", "resolution", "image-model", "job"];
 const SHARED_BOOLEAN_OPTIONS = ["json", "verbatim", "raw", "keep-session", "read-only", "write", "draft"];
 
 const ZDR_HINT = [
@@ -174,7 +179,8 @@ async function runMediaCommand({ command, options, positionals, cwd, promptBuild
       cwd,
       model: options.model,
       effort: options.effort,
-      maxTurns: extra.maxTurns ?? 8
+      maxTurns: extra.maxTurns ?? 8,
+      imageModel: spec.imageModel
     }),
     timeoutMs,
     onStderr: (chunk) => {
@@ -361,6 +367,10 @@ async function commandSetup({ options }) {
 }
 
 async function commandAsk({ options, positionals, cwd }) {
+  // ask may well draw an image, but with Grok's own choice of model; say so rather than ignore the flag.
+  if (options["image-model"] !== undefined) {
+    fail(imageModelNotApplicable("ask"));
+  }
   const binary = requireGrok();
   const json = Boolean(options.json);
 
@@ -526,6 +536,10 @@ function commandHelp() {
       "  --timeout SECS   Run timeout",
       "  --json           Machine-readable output",
       "  --verbatim=false Let Grok rewrite the prompt instead of passing it through",
+      "",
+      "Image model (image, edit, and video's opening frame):",
+      `  --image-model M  ${IMAGE_MODEL_CHOICES.join(", ")} (default ${DEFAULT_IMAGE_MODEL_CHOICE}, i.e. ${DEFAULT_IMAGE_MODEL};`,
+      `                   ${SERVER_IMAGE_MODEL} passes no override, so xAI's current default applies)`,
       "",
       "Video options (animate, video):",
       `  --duration SECS  ${IMAGE_TO_VIDEO_DURATIONS.join(" or ")} (default ${DEFAULT_VIDEO_DURATION})`,

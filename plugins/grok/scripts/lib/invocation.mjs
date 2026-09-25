@@ -9,6 +9,8 @@
 
 import { randomUUID } from "node:crypto";
 
+import { SERVER_IMAGE_MODEL } from "./media-spec.mjs";
+
 /** Built-in tools each media command needs; Grok is offered nothing else. */
 export const MEDIA_TOOL_ALLOWLIST = Object.freeze({
   image: ["image_gen"],
@@ -62,6 +64,12 @@ export const ISOLATION_ENV = Object.freeze(
  */
 export const WORKER_ENV_VAR = "GROK_PLUGIN_CC_WORKER";
 
+/** The variable that picks each image tool's model. */
+const IMAGE_MODEL_ENV = Object.freeze({
+  image_gen: "GROK_IMAGE_GEN_MODEL_OVERRIDE",
+  image_edit: "GROK_IMAGE_EDIT_MODEL_OVERRIDE"
+});
+
 /** Removed from `ask` unless the caller opts into writes. */
 const ASK_WRITE_TOOLS = ["write", "search_replace", "delete_file", "edit_notebook"];
 
@@ -70,9 +78,10 @@ const ASK_WRITE_TOOLS = ["write", "search_replace", "delete_file", "edit_noteboo
  *
  * Returns `{ args, env, cwd, sessionId }`, ready for `runGrokHeadless`. Media
  * runs open a new session under a UUID generated here, so its folder is known
- * up front. `readOnly` only applies to `ask`.
+ * up front. `readOnly` only applies to `ask`; `imageModel` (a model id, or
+ * `SERVER_IMAGE_MODEL`) only to the image tools a media command allows.
  */
-export function buildGrokInvocation(command, { prompt, cwd, model, effort, maxTurns, readOnly }) {
+export function buildGrokInvocation(command, { prompt, cwd, model, effort, maxTurns, readOnly, imageModel }) {
   const args = ["-p", prompt, "--always-approve", "--output-format", "json", "--cwd", cwd];
 
   if (model) {
@@ -114,5 +123,14 @@ export function buildGrokInvocation(command, { prompt, cwd, model, effort, maxTu
     "--session-id",
     sessionId
   );
-  return { args, env: { ...workerEnv, ...ISOLATION_ENV }, cwd, sessionId };
+  const env = { ...workerEnv, ...ISOLATION_ENV };
+  for (const variable of tools.map((tool) => IMAGE_MODEL_ENV[tool]).filter(Boolean)) {
+    if (imageModel === SERVER_IMAGE_MODEL) {
+      // Also drop an override inherited from the user's shell: "server" means xAI's default.
+      delete env[variable];
+    } else if (imageModel) {
+      env[variable] = imageModel;
+    }
+  }
+  return { args, env, cwd, sessionId };
 }

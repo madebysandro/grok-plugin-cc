@@ -29,6 +29,31 @@ export const DEFAULT_VIDEO_RESOLUTION = "720p";
 /** `--draft`: the cheapest clip worth looking at, to try an idea before spending on it. */
 export const DRAFT_VIDEO_RESOLUTION = "480p";
 
+/**
+ * `--image-model` choices. Image 2.0 is the default: it renders text (accents,
+ * prices) correctly, and the server's own default, `grok-imagine-image-quality`,
+ * is retired on 2026-11-02.
+ */
+export const IMAGE_MODELS = Object.freeze({
+  "2.0": "grok-imagine-image-2.0",
+  quality: "grok-imagine-image-quality",
+  standard: "grok-imagine-image"
+});
+export const DEFAULT_IMAGE_MODEL_CHOICE = "2.0";
+export const DEFAULT_IMAGE_MODEL = IMAGE_MODELS[DEFAULT_IMAGE_MODEL_CHOICE];
+
+/** `--image-model server`: pass no override, so xAI's current default applies. */
+export const SERVER_IMAGE_MODEL = "server";
+export const IMAGE_MODEL_CHOICES = Object.freeze([...Object.keys(IMAGE_MODELS), SERVER_IMAGE_MODEL]);
+
+/** The commands whose Grok run makes an image, so `--image-model` means something. */
+const IMAGE_MODEL_COMMANDS = ["image", "edit", "video"];
+
+/** Why `--image-model` is refused on `command`, for the commands that make no image. */
+export function imageModelNotApplicable(command) {
+  return `--image-model does not apply to ${command}; it is for ${IMAGE_MODEL_COMMANDS.slice(0, -1).join(", ")} and ${IMAGE_MODEL_COMMANDS.at(-1)}.`;
+}
+
 export const IMAGE_TO_VIDEO_DURATIONS = Object.freeze([6, 10]);
 export const DEFAULT_VIDEO_DURATION = 6;
 export const REFERENCE_VIDEO_DURATION = Object.freeze({ min: 1, max: 15 });
@@ -53,6 +78,22 @@ function pickAspect(value, allowed, label) {
     throw new MediaOptionError(`--aspect ${aspect} is not accepted by ${label}. Use one of: ${allowed.join(", ")}.`);
   }
   return aspect;
+}
+
+function pickImageModel(value) {
+  if (value === undefined || value === null) {
+    return DEFAULT_IMAGE_MODEL;
+  }
+  const choice = String(value).trim().toLowerCase();
+  if (choice === SERVER_IMAGE_MODEL) {
+    return SERVER_IMAGE_MODEL;
+  }
+  if (!Object.hasOwn(IMAGE_MODELS, choice)) {
+    throw new MediaOptionError(
+      `--image-model ${choice || '""'} is not a Grok image model. Use one of: ${IMAGE_MODEL_CHOICES.join(", ")}.`
+    );
+  }
+  return IMAGE_MODELS[choice];
 }
 
 function pickResolution(value) {
@@ -84,14 +125,15 @@ function pickSeconds(value, flag) {
 /**
  * Validate and normalise one command's generation options.
  *
- * Returns `{ aspect, duration, resolution, draft }` with only the fields that command
- * uses; throws `MediaOptionError` with a message fit to show the user.
+ * Returns `{ aspect, imageModel, duration, resolution, draft }` with only the
+ * fields that command uses; throws `MediaOptionError` with a message fit to
+ * show the user. `imageModel` is a model id, or `SERVER_IMAGE_MODEL`.
  */
 export function resolveMediaSpec(command, options = {}) {
   switch (command) {
     case "image":
       rejectVideoOptions(command, options);
-      return { aspect: pickAspect(options.aspect, IMAGE_GEN_ASPECTS, "image_gen") };
+      return { aspect: pickAspect(options.aspect, IMAGE_GEN_ASPECTS, "image_gen"), imageModel: pickImageModel(options["image-model"]) };
 
     case "edit":
       rejectVideoOptions(command, options);
@@ -100,9 +142,12 @@ export function resolveMediaSpec(command, options = {}) {
           "--aspect applies to edit only with 2 or more --image inputs; a single-image edit keeps the source image's shape."
         );
       }
-      return { aspect: pickAspect(options.aspect, IMAGE_EDIT_ASPECTS, "image_edit") };
+      return { aspect: pickAspect(options.aspect, IMAGE_EDIT_ASPECTS, "image_edit"), imageModel: pickImageModel(options["image-model"]) };
 
     case "animate":
+      if (options["image-model"] !== undefined) {
+        throw new MediaOptionError(imageModelNotApplicable(command));
+      }
       if (options.aspect !== undefined) {
         throw new MediaOptionError(
           "--aspect does not apply to animate: image_to_video keeps the source image's shape. Crop the still first."
@@ -111,7 +156,11 @@ export function resolveMediaSpec(command, options = {}) {
       return pickImageToVideo(options);
 
     case "video":
-      return { aspect: pickAspect(options.aspect, IMAGE_GEN_ASPECTS, "image_gen (the opening frame)"), ...pickImageToVideo(options) };
+      return {
+        aspect: pickAspect(options.aspect, IMAGE_GEN_ASPECTS, "image_gen (the opening frame)"),
+        imageModel: pickImageModel(options["image-model"]),
+        ...pickImageToVideo(options)
+      };
 
     case "ref-video": {
       const duration = pickSeconds(options.duration, "--duration");
