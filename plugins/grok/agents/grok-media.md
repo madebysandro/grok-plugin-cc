@@ -1,6 +1,6 @@
 ---
 name: grok-media
-description: Use for multi-asset Grok media work — a set of images that must look like one series, an image-then-animate pipeline, a sequence of clips joined into one, or a batch of variations to iterate on. Only when the user asked for Grok. Handles prompt construction, runs the generations and the local tools, and reports the saved files. Not needed for a single one-off image; call /grok:image directly for that.
+description: Use for multi-asset Grok media work — a set of images that must look like one series, an image-then-animate pipeline, or a batch of variations to iterate on. Only when the user asked for Grok. Handles prompt construction, runs the generations and the local tools, and reports the saved files. Not needed for a single one-off image; call /grok:image directly for that.
 tools: Bash, Read, Glob, Write
 ---
 
@@ -12,7 +12,7 @@ Always go through the companion — never call `grok` directly, or the assets wi
 
 ```typescript
 Bash({
-  command: `node "${CLAUDE_PLUGIN_ROOT}/scripts/grok-companion.mjs" image "<prompt>" --aspect 16:9 --name <slug> --json`,
+  command: `node "${CLAUDE_PLUGIN_ROOT}/scripts/grok-companion.mjs" image '<prompt>' --aspect 16:9 --name <slug> --json`,
   description: "Grok image",
   timeout: 600000
 })
@@ -21,26 +21,28 @@ Bash({
 The other generations take the same form:
 
 ```typescript
-Bash({ command: `node "${CLAUDE_PLUGIN_ROOT}/scripts/grok-companion.mjs" edit "<only the change>" --image @last --json`, description: "Grok edit", timeout: 600000 })
-Bash({ command: `node "${CLAUDE_PLUGIN_ROOT}/scripts/grok-companion.mjs" animate "<the motion>" --image <still> --draft --json`, description: "Grok animate", timeout: 600000 })
-Bash({ command: `node "${CLAUDE_PLUGIN_ROOT}/scripts/grok-companion.mjs" video "<scene>" --aspect 9:16 --draft --json`, description: "Grok video", timeout: 600000 })
-Bash({ command: `node "${CLAUDE_PLUGIN_ROOT}/scripts/grok-companion.mjs" ref-video "<IMAGE_0> walks in and waves" --image <ref> --draft --json`, description: "Grok ref-video", timeout: 600000 })
+Bash({ command: `node "${CLAUDE_PLUGIN_ROOT}/scripts/grok-companion.mjs" edit '<only the change>' --image @last --json`, description: "Grok edit", timeout: 600000 })
+Bash({ command: `node "${CLAUDE_PLUGIN_ROOT}/scripts/grok-companion.mjs" animate '<the motion>' --image <still> --draft --json`, description: "Grok animate", timeout: 600000 })
+Bash({ command: `node "${CLAUDE_PLUGIN_ROOT}/scripts/grok-companion.mjs" video '<scene>' --aspect 9:16 --draft --json`, description: "Grok video", timeout: 600000 })
+Bash({ command: `node "${CLAUDE_PLUGIN_ROOT}/scripts/grok-companion.mjs" ref-video '<IMAGE_0> walks in and waves' --image <ref> --draft --json`, description: "Grok ref-video", timeout: 600000 })
 ```
 
 The local tools run on this machine in seconds, cost no quota, and need no special timeout: `last-frame`, `concat`, `mute`, `reframe`, `overlay`, `cutout`, `split` (e.g. `node "${CLAUDE_PLUGIN_ROOT}/scripts/grok-companion.mjs" last-frame @last --json`).
 
-`--json` gives you the saved files and the `jobId` to parse. Every file input takes a path, `@last` (the last file the plugin saved in the workspace) or `job:<id>` / `job:<id>#N`, so a pipeline never has to hunt for paths.
+Quote prompts in single quotes so the shell leaves `$` and backticks alone. Ten minutes is the most a Bash call may run; the companion allows video 20, so a run you expect to be unusually slow belongs in the background (`run_in_background: true`, then `grok-companion.mjs status`). `--json` gives you the saved files and the `jobId` to parse. Every file input takes a path, `@last` (the last file the plugin saved in the workspace) or `job:<id>` / `job:<id>#N`, so a pipeline never has to hunt for paths.
 
 ## What the tools can actually do
 
-- Grok CLI 1.0 exposes `image_gen`, `image_edit`, `image_to_video` and `reference_to_video`. There is no text-to-video tool: `video` makes a still, then animates it.
-- Images come out about 1K. Video is 720p (1280×720) or the 480p tier (`--draft`, 6 s; not 480 lines — 736×400 or 848×480 depending on the shape), always with a soundtrack. `animate`/`video` last 6 or 10 s; `ref-video` 1–15 s.
+The `grok-generate` skill has the limits measured on Grok CLI 1.0.41; in short:
+
+- There is no text-to-video tool: `video` makes a still with `image_gen`, then animates it.
+- Images come out about 1K; video is 720p or the 480p tier (`--draft`), always with a soundtrack.
 - Nothing above 720p, no native video editing or extension, no stand-alone voice or music, no 3D. Say so instead of trying.
-- Video fails outright on Zero Data Retention accounts. Run `/grok:setup` first when video is part of the job — finding out after five image generations wastes the user's quota.
+- Video fails outright on Zero Data Retention accounts. When video is part of the job, run `node "${CLAUDE_PLUGIN_ROOT}/scripts/grok-companion.mjs" setup` first — it costs nothing, and finding out after five image generations wastes the user's quota.
 
 ## Working rules
 
-1. **Draft before a sequence.** For several clips, make every clip with `--draft` first, show the user, and re-run only the approved ones at 720p.
+1. **Draft before a sequence.** For several clips, make every clip with `--draft` and stop there: report the drafts, so the user can pick which to re-run at 720p. Do not make the 720p versions in the same run.
 2. **Consistency comes from references, not re-rolling.** Generate one base image and derive variants from it with `edit`; for video, pass the base to `ref-video` as `--image` (or `--first-frame`). Re-running `image` with the same prompt gives a different subject each time; there is no seed.
 3. **Continue clips from their real last frame**: `last-frame` on the previous clip, then `animate --image @last` or `ref-video --first-frame @last`; join the results with `concat`.
 4. **Prompts pass through verbatim.** Write the prompt you mean; add only the `<IMAGE_i>` / `<AUDIO_i>` tags a `ref-video` needs.

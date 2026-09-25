@@ -31,7 +31,7 @@ ffprobe -v error -select_streams a:0 -show_entries stream=codec_name -of csv=p=0
 What to expect:
 
 - 720p is a real 1280×720 for a 16:9 still.
-- The 480p tier (`--draft`) is **not** 480 lines: 736×400 from a 1280×720 still, 848×480 for a 16:9 `ref-video`, 544×544 for a square one. Report the size ffprobe gives, not "480p".
+- The 480p tier (`--draft`) is **not** 480 lines: `animate`/`video` gave 736×400 from a 1280×720 still, `ref-video` 848×480 for 16:9. Report the size ffprobe gives, not "480p".
 - Duration: 6 or 10 s for `animate`/`video`, what was asked (1–15 s) for `ref-video`; the file is a few hundredths of a second longer.
 - An audio stream, unless the clip was muted.
 
@@ -46,7 +46,7 @@ ffmpeg -v error -y -ss 3 -i clip.mp4 -map 0:v:0 -frames:v 1 middle.png
 
 ## Reading the outcome
 
-- **Exit 1 — refused.** An option or input was wrong, and the message says how to fix it. Nothing ran and no quota was spent: fix and re-run.
+- **Exit 1 — refused.** An option or input was wrong, and the message says how to fix it; nothing ran and no quota was spent, so fix and re-run. (A message starting `grok-companion failed:` is an internal error instead: relay it, it is a bug.)
 - **Exit 0 — completed.** Files listed, each with its size; the summary line ends with the job id (`--json` gives `jobId`).
 - **Exit 2 — partial or failed.** *Partial*: something was produced but not what was asked — most often a `/grok:video` whose still generated and whose animation failed; the still is kept and labelled intermediate. Never present it as the finished video. *Failed*: no usable output; the reason is stated. Relay it rather than paraphrasing.
 
@@ -62,20 +62,20 @@ Notes may follow a result: a brand font that did not load (`overlay`), or — on
 
 **Unknown voice.** `ref-video --voice` with an id Grok does not know fails at the tool, which lists the valid voices; the output relays them.
 
-**Timeout.** Re-run with `--timeout <seconds>` (30–3600). Video runs legitimately take a minute or more.
+**Timeout.** Re-run with `--timeout <seconds>` (30–3600). Video runs legitimately take a minute or more. A foreground Bash call stops at 10 minutes whatever `--timeout` says, so a run allowed longer than that must go in the background — otherwise Bash kills it and the job ends up `interrupted` with no reason.
 
 ## Iterating without burning quota
 
-Every generation spends the plan's weekly pool (shared by Chat, Imagine, Voice and Build). A run typically takes 15–65 s.
+Every generation spends the plan's weekly pool (shared by Chat, Imagine, Voice and Build). An image takes 15–35 s, a clip 45–65 s.
 
 - **Never retry automatically.** A failed run is a decision point for the user, not a loop for you.
 - **Edit, do not regenerate.** One detail wrong means `/grok:edit` on the existing file. Regenerating rolls a fresh subject, since there is no seed.
-- **Draft first for sequences.** `--draft` (the 480p tier, 6 s) for every clip; re-run only the approved ones at 720p.
+- **Draft first for sequences.** `--draft` (the 480p tier; 6 s unless `--duration` is given) for every clip; re-run only the approved ones at 720p.
 - **Do not generate extras** nobody asked for.
 - **Check `/grok:setup` first** when video is part of a plan, before spending anything on the stills leading up to it.
 
 ## Where files go
 
-Everything is saved into the output directory (default `grok-media/`), named from the prompt or `--name`, numbered, and never overwritten — a repeat run appends `-2`, `-3`. Each run is a job, so `@last` and `job:<id>` pick its files up in the next command.
+Everything is saved into the output directory (default `grok-media/`), named from the prompt (a generation), the input file (a local tool: `-muted`, `-concat`, `-overlay`…) or `--name`, numbered, and never overwritten — a repeat run appends `-2`, `-3`. Each run is a job, so `@last` and `job:<id>` pick its files up in the next command.
 
-`grok-manifest.json` in that directory records every run: the command, the prompt actually sent to the tool, the aspect ratio, the image model (`imageModel`), the duration, resolution and whether it was a draft, the session id and the cost — and, for local tools, their inputs, settings and the program that made the file (`ffmpeg`, `chrome`, `python`). When a user asks how a file was made, read the manifest rather than guessing.
+`grok-manifest.json` in that directory records every run that saved a file: the command, the prompt actually sent to the tool, the aspect ratio, the image model (`imageModel`), the duration, resolution and whether it was a draft, the session id and the cost — and, for local tools, their inputs, settings and the program that made the file (`ffmpeg`, `chrome`, `python`). When a user asks how a file was made, read the manifest rather than guessing.

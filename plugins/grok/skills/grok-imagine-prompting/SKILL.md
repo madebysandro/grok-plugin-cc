@@ -93,7 +93,9 @@ To keep one character, product, or location across several images: **generate on
 
 Re-running `/grok:image` for a recurring subject is the single most common way a series ends up inconsistent.
 
-For video, pass the same base image to `/grok:ref-video` as `--image` (or `--first-frame`) in every clip. Keep a project's base images in `grok-media/library/<name>/` (`canonical.png`, `turnaround.png`, `traits.md` with what must not drift) and start every piece from there.
+`image_edit` shrinks each reference to about 768 px / 400 KB first, so small text, a logo or a fine pattern in the reference can come back blurred or redrawn. Keep what must stay exact out of the edit and add it afterwards with `/grok:overlay`; warn the user when an edit hinges on such detail.
+
+For video, pass the same base image to `/grok:ref-video` as `--image` (or `--first-frame`) in every clip. Keep a project's base images in `grok-media/library/<name>/` (the canonical image, the turnaround, `traits.md` with what must not drift) and start every piece from there.
 
 ## Real people
 

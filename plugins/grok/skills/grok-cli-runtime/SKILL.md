@@ -62,7 +62,7 @@ What `grok inspect --json` reports under those variables (1.0.41, 2026-09-24):
 
 ### Recursion guard
 
-Every Grok process the plugin starts, `ask` included, gets `GROK_PLUGIN_CC_WORKER=1`. The companion refuses media commands when that variable is set, so a Grok run the plugin started can never call back into the plugin and start another quota-spending Grok run. `ask` is not refused: it spends no media quota by itself.
+Every Grok process the plugin starts, `ask` included, gets `GROK_PLUGIN_CC_WORKER=1`. The companion refuses media commands when that variable is set, so a Grok run the plugin started can never call back into the plugin and start another quota-spending Grok run. `ask` is not refused: it starts no media generation of its own. It is not free, though — like every Grok run, its turns draw on the plan's weekly pool, which Chat, Imagine, Voice and Build share.
 
 The guard only recognises Grok runs the plugin started. A Grok session the user opens themselves, with this Claude plugin loaded, carries no marker and is not refused.
 
@@ -86,7 +86,7 @@ Note the bucket is keyed on the cwd Grok resolved, which may differ from the one
 
 - Images: JPEG at about 1K.
 - Clips: H.264 at 24 fps **with an AAC soundtrack, always**, plus an MJPEG cover picture as a second video stream (`attached_pic`). Tools that read a clip must use the first real video stream (`v:0`), not "any video stream" — the plugin's local tools pick streams by index for this reason.
-- 720p is a real 1280×720 for a 16:9 still. The 480p tier is not 480 lines: 736×400 from a 1280×720 still, 848×480 for a 16:9 `reference_to_video`, 544×544 for a square one.
+- 720p gave a real 1280×720 for a 16:9 still. The 480p tier is not 480 lines: `image_to_video` gave 736×400 from a 1280×720 still, `reference_to_video` 848×480 for `aspect_ratio: 16:9` whatever the references' shape. Older 480p clips of square stills on the test machine were 544×544; what decides the size is not known.
 
 ## Harvesting assets from `updates.jsonl`
 

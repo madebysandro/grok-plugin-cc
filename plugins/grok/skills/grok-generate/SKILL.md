@@ -11,16 +11,16 @@ Turn "use Grok to …" into the right plugin command, run it, and hand back the 
 
 This skill applies when the request **names Grok**: "use o Grok para…", "gera com o Grok", "pelo Grok", "make it with Grok", "Grok, animate this", or a `/grok:…` command. It does **not** apply to a generic request — "gera uma imagem de…", "make a video of…", "animate this photo" — even though Grok could do it. The user picks the provider for each request, and other generators are installed. With no provider named, do not choose Grok on your own; if the user seems to expect one, ask which.
 
-Once a conversation has settled on Grok for a piece of work ("now animate it", "make three more"), the follow-ups belong to it too.
+A follow-up that names no provider ("now animate it", "make three more") is a new request, and the user chooses its provider too. If they said to keep using Grok for this piece of work, go on; otherwise ask in one short question whether it should be Grok again.
 
 ## UX rules
 
 1. **Reply in the user's language.** Commands and flags stay in English (`--aspect 16:9`).
 2. **One question at a time**, and only when something is genuinely missing: no prompt, no source image for an edit or an animation. Otherwise pick the defaults below and go.
-3. **Pass the user's prompt through verbatim.** Do not translate, expand, or "improve" it: the plugin sends it to the tool word for word, and Portuguese text in the prompt comes out in Portuguese. The only thing you add is what a command needs — the `<IMAGE_i>` / `<AUDIO_i>` tags of a `ref-video` prompt, placed around the user's own words.
-4. **Run in the foreground**, with the Bash tool's `timeout: 600000` (its 2-minute default cuts video short). An image takes 15–35 s, a clip about a minute. Background only when the user asks for it or passes `--background`, or for a batch (several prompts, or `--count 4` and up) — then launch it, stop, and point to `/grok:status`.
-5. **Several clips → a draft pass first.** Before spending quota on a sequence, propose `--draft` (the 480p tier, 6 s) for every clip, and re-run the approved ones at 720p.
-6. **Never retry automatically.** A failed run is the user's decision point. Relay the reason as the companion gives it; a refusal (exit 1) happened before Grok ran and names the fix.
+3. **Pass the user's prompt through verbatim.** Do not translate, expand, or "improve" it: the plugin sends it to the tool word for word, and Portuguese text in the prompt comes out in Portuguese. Add only what the command or the next step needs — the `<IMAGE_i>` / `<AUDIO_i>` tags of a `ref-video` prompt, or the flat-green background a `cutout` or `split` needs — around the user's own words, and tell the user what you added.
+4. **Run in the foreground**, with the Bash tool's `timeout: 600000` (its 2-minute default cuts video short). An image takes 15–35 s, a clip 45–65 s. Ten minutes is the most Bash allows, below the companion's own 20-minute limit for video, so a run you expect to be unusually slow belongs in the background. Background only then, when the user asks for it or passes `--background`, or for a batch (several prompts, or `--count 4` and up) — launch it, stop, and point to `/grok:status`.
+5. **Several clips → a draft pass first.** Before spending quota on a sequence, propose `--draft` for every clip (the 480p tier; 6 s unless `--duration` says otherwise), and re-run the approved ones at 720p.
+6. **Never retry automatically.** A failed run is the user's decision point. Relay the reason as the companion gives it; a refusal (exit 1, with a message naming the fix) happened before Grok ran.
 7. **Deliver the file path and a one-line summary** (what, size, tier/duration). `Read` every generated image so the user sees it. You cannot watch a video: report path, size and what `ffprobe` shows, never the motion or the speech.
 8. **Do not generate extras** nobody asked for, and do not quote costs unless asked — the plan's pool is weekly and shared by Chat, Imagine, Voice and Build.
 
@@ -30,13 +30,13 @@ Every command goes through the plugin's companion; never call `grok` directly (t
 
 ```typescript
 Bash({
-  command: `node "${CLAUDE_PLUGIN_ROOT}/scripts/grok-companion.mjs" image "<prompt>" --aspect 16:9`,
+  command: `node "${CLAUDE_PLUGIN_ROOT}/scripts/grok-companion.mjs" image '<prompt>' --aspect 16:9`,
   description: "Grok image",
   timeout: 600000
 })
 ```
 
-The same line works for every command below (`edit`, `animate`, `video`, `ref-video`, the local tools…). The slash commands (`/grok:image` …) do exactly this, for when the user types them. Options that do not apply to a command are refused before anything runs, never silently dropped.
+Quote the prompt in single quotes, so the shell passes `$`, `!` and backticks through untouched (write an apostrophe inside as `'\''`). The same line works for every command below (`edit`, `animate`, `video`, `ref-video`, the local tools…); the slash commands (`/grok:image` …) do exactly this, for when the user types them. The generation commands and the local tools refuse an option that does not apply to them before anything runs; `ask` keeps the original plugin's behaviour and ignores them.
 
 ## Intent → command
 
@@ -44,7 +44,7 @@ The same line works for every command below (`edit`, `animate`, `video`, `ref-vi
 | --- | --- | --- |
 | An image from a description | `/grok:image "<prompt>"` | Image 2.0 by default. `--aspect` 1:1, 16:9, 9:16, 3:2, 2:3, auto. Short text (a name, a price, accents) is fine drawn directly. |
 | Variations of one idea | `/grok:image "<prompt>" --count N` | 1–8, one tool call each. |
-| To change an existing image, or combine several | `/grok:edit "<only the change>" --image P [--image P2]` | Describe just the change; the rest is kept. `--aspect` only with 2+ images. |
+| To change an existing image, or combine several | `/grok:edit "<only the change>" --image P [--image P2]` | Describe just the change; the rest is kept. `--aspect` only with 2+ images. References are shrunk to ~768 px: fine detail can be lost. |
 | The same character or product across a series | `/grok:image` once, then `/grok:edit` from that base | No seed: re-generating rolls a new subject. |
 | To animate a still | `/grok:animate "<the motion>" --image P` | 720p, 6 s by default; `--duration 10`. The clip keeps the still's shape: no `--aspect`. |
 | A video from a description | `/grok:video "<scene>" [--aspect 16:9]` | An `image_gen` still, then its animation; both files kept. |
@@ -72,8 +72,8 @@ Any file input takes `@last` (the last file the plugin saved in the workspace �
 
 ## What Grok really does (Grok CLI 1.0.41, measured live)
 
-- **Images** come out about 1K: 1024×1024 square, 1280×720 wide. Image 2.0 (the default; `--image-model quality|standard|server` goes back) renders accents and prices right — "TORREFAÇÃO", "CAFÉ", "R$ 5,90". Reference images in an edit are reduced to about 768 px, so small text or a logo inside a reference suffers.
-- **Video** is 720p or the 480p tier, nothing higher. 720p is a real 1280×720. The "480p" tier is not 480 lines: 736×400 from a 1280×720 still, 848×480 for a 16:9 `ref-video`, 544×544 for a square one. `animate`/`video` last 6 or 10 s; `ref-video` 1–15 s.
+- **Images** come out about 1K: 1024×1024 square, 1280×720 wide. Image 2.0 (the default; `--image-model quality|standard|server` goes back) renders accents and prices right — "TORREFAÇÃO", "CAFÉ", "R$ 5,90". `image_edit` reduces every reference image to about 768 px / 400 KB before using it, so fine detail in a reference — small text, a logo, a pattern — can be lost or redrawn. Tell the user before an edit that depends on such detail, and for exact text or logos add them afterwards with `/grok:overlay`.
+- **Video** is 720p or the 480p tier, nothing higher. 720p gave a real 1280×720 from a 16:9 still. The "480p" tier is not 480 lines: `animate`/`video` gave 736×400 from a 1280×720 still, `ref-video` 848×480 for 16:9 whatever the references' shape. `animate`/`video` last 6 or 10 s; `ref-video` 1–15 s.
 - Every clip is H.264 at 24 fps **with an AAC soundtrack**, plus an MJPEG cover picture as a second video stream.
 - `ref-video` took **8 reference images** on 1.0.41 (its schema says 14; older CLIs, 7 — `/grok:setup` shows which). The voice `eve` spoke a Portuguese line intelligibly. `--loop` gave first and last frames with an SSIM of 0.96.
 - There is no seed: the same prompt gives a different result each time.
@@ -90,8 +90,8 @@ Any file input takes `@last` (the last file the plugin saved in the workspace �
 
 Keep what must stay consistent across a project's pieces under `grok-media/library/<name>/`:
 
-- `canonical.png` — the reference image of the character, mascot or product. Feed it as `--image` to `edit` and `ref-video`.
-- `turnaround.png` — front, side and back views on green (and the separate views from `/grok:split`).
+- `canonical.jpg` (or `.png`) — the reference image of the character, mascot or product. Feed it as `--image` to `edit` and `ref-video`.
+- `turnaround.jpg` — front, side and back views on green, and the separate views `/grok:split` makes from it.
 - `traits.md` — what must not drift: face, proportions, outfit, colours, logo placement.
 - `brand.json` — for a brand: colours, fonts, logo, used by `/grok:overlay --brand` (format in the `grok-imagine-prompting` skill).
 
