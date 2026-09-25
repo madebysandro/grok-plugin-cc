@@ -2,7 +2,9 @@
  * Consistency checks on what Claude reads: the skills, the grok-media agent,
  * the slash-command files and the README. They catch a router that forgets a
  * command, a document naming a command that does not exist, and a generation
- * example that would run into the Bash tool's 2-minute default timeout.
+ * example that would run into the Bash tool's 2-minute default timeout. Also on
+ * what a release ships: one version across the manifests, links to this fork,
+ * and a CHANGELOG section for that version.
  */
 
 import assert from "node:assert/strict";
@@ -14,6 +16,7 @@ import { PLUGIN_ROOT } from "./helpers.mjs";
 
 const REPO_ROOT = path.resolve(PLUGIN_ROOT, "..", "..");
 const GENERATION_COMMANDS = ["image", "edit", "animate", "video", "ref-video"];
+const FORK = "madebysandro/grok-plugin-cc";
 
 const COMMANDS = fs
   .readdirSync(path.join(PLUGIN_ROOT, "commands"))
@@ -62,6 +65,18 @@ function skillText(name) {
   return fs.readFileSync(path.join(PLUGIN_ROOT, "skills", name, "SKILL.md"), "utf8");
 }
 
+/** The body of a document's `## heading` section, up to the next `## `. */
+function section(text, heading, label) {
+  const start = text.indexOf(`\n${heading}\n`);
+  assert.notEqual(start, -1, `${label}: the "${heading}" section is missing`);
+  const end = text.indexOf("\n## ", start + 1);
+  return text.slice(start, end === -1 ? undefined : end);
+}
+
+function readJson(...segments) {
+  return JSON.parse(fs.readFileSync(path.join(REPO_ROOT, ...segments), "utf8"));
+}
+
 test("every skill names itself after its folder and says when to use it", () => {
   for (const name of SKILLS) {
     const fields = frontmatter(skillText(name), `skills/${name}/SKILL.md`);
@@ -71,11 +86,7 @@ test("every skill names itself after its folder and says when to use it", () => 
 });
 
 test("grok-generate's routing table covers every command the plugin has", () => {
-  const text = skillText("grok-generate");
-  const start = text.indexOf("## Intent → command");
-  assert.notEqual(start, -1, "skills/grok-generate/SKILL.md: the \"## Intent → command\" section is missing");
-  const end = text.indexOf("\n## ", start + 1);
-  const mentioned = commandsMentioned(text.slice(start, end === -1 ? undefined : end));
+  const mentioned = commandsMentioned(section(skillText("grok-generate"), "## Intent → command", "skills/grok-generate/SKILL.md"));
 
   const missing = COMMANDS.filter((command) => !mentioned.has(command));
   assert.deepEqual(missing, [], `skills/grok-generate/SKILL.md: its "Intent → command" section never routes to ${missing.map((c) => `/grok:${c}`).join(", ")}`);
@@ -109,6 +120,36 @@ test("every example that runs a generation in the foreground gives Bash a 10-min
       );
     }
   }
+});
+
+test("the README's command table lists every command the plugin has", () => {
+  const mentioned = commandsMentioned(section(fs.readFileSync(path.join(REPO_ROOT, "README.md"), "utf8"), "## Commands", "README.md"));
+
+  const missing = COMMANDS.filter((command) => !mentioned.has(command));
+  assert.deepEqual(missing, [], `README.md: its "Commands" section never lists ${missing.map((c) => `/grok:${c}`).join(", ")}`);
+});
+
+test("the plugin, the marketplace and the package carry one version and point at the fork", () => {
+  const plugin = readJson("plugins", "grok", ".claude-plugin", "plugin.json");
+  const marketplace = readJson(".claude-plugin", "marketplace.json");
+  const pkg = readJson("package.json");
+  const listed = marketplace.plugins.find((entry) => entry.name === plugin.name);
+
+  assert.ok(listed, `.claude-plugin/marketplace.json: no entry for the "${plugin.name}" plugin`);
+  assert.deepEqual(
+    { "marketplace metadata": marketplace.metadata.version, "marketplace entry": listed.version, "package.json": pkg.version },
+    { "marketplace metadata": plugin.version, "marketplace entry": plugin.version, "package.json": plugin.version },
+    `every manifest should carry plugin.json's version, ${plugin.version}`
+  );
+  assert.equal(plugin.homepage, `https://github.com/${FORK}`, "plugin.json: homepage should be the fork");
+  assert.equal(pkg.repository.url, `git+https://github.com/${FORK}.git`, "package.json: repository should be the fork");
+});
+
+test("the CHANGELOG's newest section is the version the manifests carry", () => {
+  const { version } = readJson("plugins", "grok", ".claude-plugin", "plugin.json");
+  const newest = /^## (\S+)/m.exec(fs.readFileSync(path.join(PLUGIN_ROOT, "CHANGELOG.md"), "utf8"))?.[1];
+
+  assert.equal(newest, version, `plugins/grok/CHANGELOG.md: the newest section should be "## ${version}", not "## ${newest}"`);
 });
 
 test("grok-generate only answers an explicit request for Grok", () => {

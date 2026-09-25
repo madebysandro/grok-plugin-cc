@@ -2,7 +2,7 @@
 
 Every live Grok run made while building Round 1 of the fork. The spec allows at most 12 generations for the round (`docs/spec-paridade-higgsfield.md` §6), always in the smallest configuration. No credentials or account details are recorded here.
 
-Grok CLI 1.0.41 (4220f3b224a6), macOS arm64. Generations used so far: **9 of 12**.
+Grok CLI 1.0.41 (4220f3b224a6), macOS arm64. Generations used in Round 1: **9 of 12**. The spec's three reserve runs (10–12, for redoing a failed test) were not needed: every planned test succeeded on its first attempt.
 
 ## Generations
 

@@ -1,11 +1,11 @@
 {
   "name": "grok",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "Use Grok from Claude Code to generate images and video, or to delegate a task.",
   "author": {
     "name": "Ariel Aizenshtat"
   },
-  "homepage": "https://github.com/arielaizn/grok-plugin-cc",
+  "homepage": "https://github.com/madebysandro/grok-plugin-cc",
   "keywords": [
     "grok",
     "xai",
