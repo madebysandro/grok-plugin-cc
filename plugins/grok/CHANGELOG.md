@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### Documentation
+
+- The README is reorganised around using the plugin: what it does, a quick start, the commands, then a gallery with one example per feature (`ref-video` with references, a loop and a voice; `animate` and a `video --draft`; exact text with Image 2.0 and `overlay`; `reframe`; `cutout` and `split`), chaining with `@last` and `job:<id>`, the project library and `brand.json`, options, real limits and known limitations.
+- A Portuguese README, `README.pt-BR.md`, linked both ways.
+- The gallery lives in `docs/gallery/`. It reuses the round's live runs and the local tools' output; one more generation (run 10 in `docs/live-tests.md`) made the green-screen sheet for `cutout` and `split`.
+
 ## 2.0.0
 
 The first release of the fork [`madebysandro/grok-plugin-cc`](https://github.com/madebysandro/grok-plugin-cc), built on [`arielaizn/grok-plugin-cc`](https://github.com/arielaizn/grok-plugin-cc) 1.0.0 by Ariel Aizenshtat. It brings the plugin closer to the Higgsfield skills: a few generation commands, local tools that need no AI, and a router skill that Claude follows. Everything runs on a Grok subscription through the Grok CLI, with no API key. Measured on Grok CLI 1.0.41.

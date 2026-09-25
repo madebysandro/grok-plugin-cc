@@ -1,0 +1,5 @@
+{
+  "name": "Night Sky Club",
+  "colors": { "primary": "#1b2a4a", "secondary": "#2f4f86", "accent": "#f2c14e", "text": "#ffffff", "background": "#0b1020" },
+  "fonts": { "heading": "Playfair Display", "body": "Inter" }
+}
