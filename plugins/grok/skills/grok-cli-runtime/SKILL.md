@@ -16,7 +16,7 @@ Grok CLI 1.0 exposes exactly four media tools:
 | `image_gen` | New image from a text prompt |
 | `image_edit` | Modify an existing image, given one or more source images |
 | `image_to_video` | Animate a still into a clip |
-| `reference_to_video` | Generate a clip guided by a reference image |
+| `reference_to_video` | Generate a clip from reference images, pinned first/last frames, keyframes and preset voices (`/grok:ref-video`) |
 
 **There is no `video_gen`.** The name appears in the binary's tool table but is never offered to the agent. Asking for it by name makes the model search MCP discovery for several turns and then report `'video_gen' is not a valid MCP tool name` — a confusing failure that looks like a plugin bug.
 

@@ -30,6 +30,15 @@ One run on each side, so treat the times as indicative. The drop in offered tool
 - Detects the old (up to 7 images, no pinned frames) and new (up to 14) `reference_to_video` schema, exposed in `setup --json` as `compat.referenceToVideo`.
 - Shows the plan and the image/video switches from `~/.grok/settings_cache.json`, keeping only those four fields and never printing or storing the rest. A switch that is off warns on the matching check rather than failing it, since the cache's payload format is not pinned down.
 
+### `/grok:ref-video`
+
+- New command for `reference_to_video`: reference images (`--image`, repeatable), exact first/last frames, keyframes pinned at a moment (`--keyframe PATH@SECONDS`), preset voices (`--voice`) and `--loop` (the one image as both first and last frame, with "Locked camera, seamless loop." added to the prompt).
+- `--aspect` (default 16:9), `--duration` 1–15 (default 6), `--resolution` (default 720p) and `--draft`; `--image-model` is refused, since the tool makes no still.
+- Checked before Grok runs: at least one input; up to 14 reference images, or 7 and no pinned frames when the installed CLI offers the older schema (as `/grok:setup` detects it); up to 3 voices, each shaped like a voice id; up to 4 keyframes, strictly inside the clip even after Grok snaps them to its 1/3-second grid, and at least 1/3 s apart. Keyframes are sent in time order, which is how their `<IMAGE_i>` tags count.
+- Every file input takes `@last` and `job:<id>[#N]`. Grok receives the structured arguments as exact JSON and the prompt verbatim, with `reference_to_video` as its only tool.
+- Voice ids are not checked locally: xAI's public docs list the roster only as an example, so an unknown id reaches Grok, whose error names the available voices.
+- `--loop`, `--voice`, `--keyframe`, `--first-frame` and `--last-frame` are refused by the other commands instead of being ignored. One table in `lib/media-spec.mjs` now says which command each such option belongs to.
+
 ## 1.0.0
 
 Initial release.

@@ -21,7 +21,7 @@ import {
   runGrokHeadless
 } from "./lib/grok.mjs";
 import { MEDIA_TOOL_ALLOWLIST, WORKER_ENV_VAR, buildGrokInvocation } from "./lib/invocation.mjs";
-import { checkCompatibility } from "./lib/compat.mjs";
+import { checkCompatibility, referenceInputLimits } from "./lib/compat.mjs";
 import { buildReadinessReport } from "./lib/readiness.mjs";
 import {
   extractAgentMessage,
@@ -34,6 +34,7 @@ import { collectAssets, resolveOutDir, slugify, writeManifest } from "./lib/asse
 import {
   DEFAULT_IMAGE_MODEL,
   DEFAULT_IMAGE_MODEL_CHOICE,
+  DEFAULT_REFERENCE_ASPECT,
   DEFAULT_VIDEO_DURATION,
   DEFAULT_VIDEO_RESOLUTION,
   DRAFT_VIDEO_RESOLUTION,
@@ -42,10 +43,15 @@ import {
   IMAGE_MODEL_CHOICES,
   IMAGE_TO_VIDEO_DURATIONS,
   MediaOptionError,
+  OLDER_REFERENCE_IMAGES,
+  REFERENCE_LIMITS,
+  REFERENCE_VIDEO_ASPECTS,
+  REFERENCE_VIDEO_DURATION,
   SERVER_IMAGE_MODEL,
   imageModelNotApplicable,
   VIDEO_RESOLUTIONS,
-  resolveMediaSpec
+  resolveMediaSpec,
+  resolveReferenceInputs
 } from "./lib/media-spec.mjs";
 import { resolveImageArg } from "./lib/refs.mjs";
 import {
@@ -62,14 +68,18 @@ import {
   buildAskPrompt,
   buildEditPrompt,
   buildImagePrompt,
+  buildReferenceVideoPrompt,
   buildVideoPrompt
 } from "./lib/prompts.mjs";
 
-const COMMANDS = new Set(["setup", "image", "edit", "video", "animate", "ask", "status", "result", "cancel", "help"]);
+const COMMANDS = new Set(["setup", "image", "edit", "video", "animate", "ref-video", "ask", "status", "result", "cancel", "help"]);
 const MEDIA_COMMANDS = new Set(Object.keys(MEDIA_TOOL_ALLOWLIST));
 
-const SHARED_VALUE_OPTIONS = ["out", "aspect", "count", "name", "model", "effort", "timeout", "duration", "resolution", "image-model", "job"];
-const SHARED_BOOLEAN_OPTIONS = ["json", "verbatim", "raw", "keep-session", "read-only", "write", "draft"];
+const SHARED_VALUE_OPTIONS = [
+  "out", "aspect", "count", "name", "model", "effort", "timeout", "duration", "resolution", "image-model", "job",
+  "first-frame", "last-frame"
+];
+const SHARED_BOOLEAN_OPTIONS = ["json", "verbatim", "raw", "keep-session", "read-only", "write", "draft", "loop"];
 
 const ZDR_HINT = [
   "Cause: this xAI account has Zero Data Retention enabled",
@@ -124,7 +134,7 @@ function requireGrok() {
   return binary;
 }
 
-/** Shared driver for the four media commands. */
+/** Shared driver for the media commands. */
 async function runMediaCommand({ command, options, positionals, cwd, promptBuilder, title, defaultOutDir, extra = {} }) {
   const binary = requireGrok();
   const json = Boolean(options.json);
@@ -145,6 +155,17 @@ async function runMediaCommand({ command, options, positionals, cwd, promptBuild
     fail(error.message);
   }
 
+  // Input files are checked against the resolved spec (keyframes must fall
+  // inside the clip) — still before any job or Grok run.
+  let inputs = {};
+  if (extra.resolveInputs) {
+    try {
+      inputs = extra.resolveInputs(spec);
+    } catch (error) {
+      fail(String(error?.message ?? error));
+    }
+  }
+
   const outDir = resolveOutDir(options.out, cwd, defaultOutDir);
   const count = parseCount(options.count, { fallback: 1, min: 1, max: 8 });
   const timeoutMs = parseCount(options.timeout, { fallback: extra.defaultTimeoutSeconds ?? 900, min: 30, max: 3600 }) * 1000;
@@ -156,7 +177,8 @@ async function runMediaCommand({ command, options, positionals, cwd, promptBuild
     resolution: spec.resolution ?? null,
     count,
     verbatim: options.verbatim !== false,
-    ...extra.promptExtras
+    ...extra.promptExtras,
+    ...inputs
   });
 
   const jobId = options.job || generateJobId(command);
@@ -214,9 +236,9 @@ async function runMediaCommand({ command, options, positionals, cwd, promptBuild
   const failedCalls = calls.filter((call) => call.status === "failed" && call.error);
   const costUsd = Number(run.envelope?.total_cost_usd);
 
-  // `video`/`animate` must actually yield a video. Without this check a run
-  // whose animation step failed would still report success on the intermediate
-  // still frame, which is exactly the wrong answer.
+  // `video`, `animate` and `ref-video` must actually yield a video. Without this
+  // check a run whose animation step failed would still report success on the
+  // intermediate still frame, which is exactly the wrong answer.
   const requiredTypes = extra.requiredOutputTypes ?? null;
   const producedRequired =
     !requiredTypes || saved.some((asset) => requiredTypes.includes(asset.outputType));
@@ -474,6 +496,7 @@ function commandHelp() {
       "  edit    <prompt> --image P  Edit an existing image with image_edit",
       "  video   <prompt>            Generate a video (image_gen, then image_to_video)",
       "  animate <prompt> --image P  Animate a still with image_to_video",
+      "  ref-video <prompt> inputs   Video from reference images, pinned frames and voices (reference_to_video)",
       "  ask     <prompt>            Delegate a general task to Grok",
       "  status                      List background jobs for this workspace",
       "  result  [job-id]            Show a job's output files",
@@ -496,13 +519,24 @@ function commandHelp() {
       `  --image-model M  ${IMAGE_MODEL_CHOICES.join(", ")} (default ${DEFAULT_IMAGE_MODEL_CHOICE}, i.e. ${DEFAULT_IMAGE_MODEL};`,
       `                   ${SERVER_IMAGE_MODEL} passes no override, so xAI's current default applies)`,
       "",
-      "Video options (animate, video):",
-      `  --duration SECS  ${IMAGE_TO_VIDEO_DURATIONS.join(" or ")} (default ${DEFAULT_VIDEO_DURATION})`,
+      "Video options (animate, video, ref-video):",
+      `  --duration SECS  ${IMAGE_TO_VIDEO_DURATIONS.join(" or ")} (default ${DEFAULT_VIDEO_DURATION});`,
+      `                   ref-video: ${REFERENCE_VIDEO_DURATION.min}-${REFERENCE_VIDEO_DURATION.max} (default ${DEFAULT_VIDEO_DURATION})`,
       `  --resolution R   ${VIDEO_RESOLUTIONS.join(" or ")} (default ${DEFAULT_VIDEO_RESOLUTION}; the CLI offers nothing higher)`,
       `  --draft          A cheap ${DRAFT_VIDEO_RESOLUTION} try-out; ${DEFAULT_VIDEO_DURATION} s unless --duration is given,`,
       "                   and not combinable with --resolution",
       "",
-      "Input images (--image) take a path, a data: URL, or an earlier result:",
+      "ref-video inputs (give at least one; tag images <IMAGE_i> and voices <AUDIO_i> in the prompt):",
+      `  --image P        Reference image, repeatable (up to ${REFERENCE_LIMITS.images}; ${OLDER_REFERENCE_IMAGES} on older Grok CLIs)`,
+      "  --first-frame P  Exact opening frame        --last-frame P  Exact closing frame",
+      `  --keyframe P@S   Image pinned at S seconds, strictly inside the clip, repeatable (up to ${REFERENCE_LIMITS.keyframes})`,
+      `  --voice ID       Preset voice the subject speaks in, repeatable (up to ${REFERENCE_LIMITS.voices}), e.g. ara, eve, leo, rex`,
+      "",
+      "ref-video options:",
+      "  --loop           Use the one --image as both first and last frame, for a seamless loop",
+      `  --aspect RATIO   ${REFERENCE_VIDEO_ASPECTS.join(", ")} (default ${DEFAULT_REFERENCE_ASPECT})`,
+      "",
+      "Input images (--image, --first-frame, --last-frame, --keyframe) take a path, a data: URL, or an earlier result:",
       "  @last            The last file the newest job in this workspace saved",
       "  job:<id>         That job's first file (ids are in the output and in status)",
       "  job:<id>#N       That job's Nth file, counting from 1"
@@ -540,7 +574,7 @@ async function main() {
     parsed = parseArgs(argv.slice(1), {
       valueOptions: SHARED_VALUE_OPTIONS,
       booleanOptions: SHARED_BOOLEAN_OPTIONS,
-      repeatOptions: ["image"],
+      repeatOptions: ["image", "keyframe", "voice"],
       aliases: { o: "out", n: "count", m: "model" }
     });
   } catch (error) {
@@ -638,6 +672,26 @@ async function main() {
       });
       return;
     }
+
+    case "ref-video":
+      await runMediaCommand({
+        command: "ref-video",
+        options,
+        positionals,
+        cwd,
+        promptBuilder: buildReferenceVideoPrompt,
+        title: "Generated video",
+        defaultOutDir: "grok-media",
+        extra: {
+          maxTurns: 5,
+          defaultTimeoutSeconds: 1200,
+          requiredOutputTypes: ["ReferenceToVideo"],
+          // Checked against the reference_to_video this Grok CLI offers (see /grok:setup).
+          resolveInputs: (spec) =>
+            resolveReferenceInputs(options, spec.duration, (value) => resolveImageArg(value, cwd), referenceInputLimits())
+        }
+      });
+      return;
 
     case "ask":
       await commandAsk({ options, positionals, cwd });

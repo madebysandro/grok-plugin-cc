@@ -10,7 +10,8 @@ const MEDIA_COMMANDS = {
   image: { args: ["image", "a lighthouse at dusk"], tools: "image_gen" },
   edit: { args: ["edit", "make it night", "--image", "in.png"], tools: "image_edit" },
   animate: { args: ["animate", "waves roll in", "--image", "in.png"], tools: "image_to_video" },
-  video: { args: ["video", "waves roll in"], tools: "image_gen,image_to_video" }
+  video: { args: ["video", "waves roll in"], tools: "image_gen,image_to_video" },
+  "ref-video": { args: ["ref-video", "<IMAGE_0> walks in", "--image", "in.png"], tools: "reference_to_video" }
 };
 
 /** Grok's switches for loading the user's Claude and Cursor setup. */

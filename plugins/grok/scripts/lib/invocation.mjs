@@ -16,7 +16,8 @@ export const MEDIA_TOOL_ALLOWLIST = Object.freeze({
   image: ["image_gen"],
   edit: ["image_edit"],
   animate: ["image_to_video"],
-  video: ["image_gen", "image_to_video"]
+  video: ["image_gen", "image_to_video"],
+  "ref-video": ["reference_to_video"]
 });
 
 /**
