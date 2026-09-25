@@ -195,3 +195,28 @@ test("an image run's manifest has no video settings", async (t) => {
     assert.ok(!(key in generation), `${key} should not be recorded for an image`);
   }
 });
+
+test("options a generation command would ignore are refused, naming the commands they are for", async (t) => {
+  const sandbox = createSandbox(t);
+  const image = sourceImage(sandbox);
+
+  const refusals = [
+    [["animate", "drift", "--image", image, "--count", "2"], /--count does not apply to animate; it is for image and edit\./],
+    [["video", "a kite at dusk", "--count", "2"], /--count does not apply to video; it is for image and edit\./],
+    [["ref-video", "a kite at dusk", "--image", image, "--count", "2"], /--count does not apply to ref-video; it is for image and edit\./],
+    [["image", "a red kite", "--image", image], /--image does not apply to image; it is for edit, animate, ref-video and overlay\./],
+    [["video", "a kite at dusk", "--image", image], /--image does not apply to video; it is for edit, animate, ref-video and overlay\./],
+    [["image", "a red kite", "--write"], /--write does not apply to image; it is for ask\./]
+  ];
+  for (const [args, pattern] of refusals) {
+    await assertRejectedBeforeGrok(sandbox, args, pattern);
+  }
+});
+
+test("a flag the plugin does not have reaches Grok in the prompt rather than vanishing", async (t) => {
+  const sandbox = createSandbox(t);
+
+  await generate(sandbox, ["image", "a red kite", "--raw"], [{ tool: "image_gen" }]);
+
+  assert.ok(lastPromptLines(sandbox).includes("a red kite --raw"), lastPromptLines(sandbox).join("\n"));
+});

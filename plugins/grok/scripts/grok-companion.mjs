@@ -85,7 +85,7 @@ const SHARED_VALUE_OPTIONS = [
   "first-frame", "last-frame", "mode", "anchor", "text", "sub", "brand", "position", "style",
   "key", "tolerance", "expect", "bg"
 ];
-const SHARED_BOOLEAN_OPTIONS = ["json", "verbatim", "raw", "keep-session", "read-only", "write", "draft", "loop", "reencode"];
+const SHARED_BOOLEAN_OPTIONS = ["json", "verbatim", "write", "draft", "loop", "reencode"];
 
 const ZDR_HINT = [
   "Cause: this xAI account has Zero Data Retention enabled",

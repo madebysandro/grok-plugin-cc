@@ -54,6 +54,10 @@ const VIDEO_COMMANDS = ["animate", "video", "ref-video"];
  * `--image-model` needs a Grok run that makes an image.
  */
 const OPTION_COMMANDS = Object.freeze({
+  // Only these prompts ask for several results, and only these commands take input images by --image.
+  count: ["image", "edit"],
+  image: ["edit", "animate", "ref-video", "overlay"],
+  write: ["ask"],
   draft: VIDEO_COMMANDS,
   resolution: VIDEO_COMMANDS,
   duration: VIDEO_COMMANDS,
