@@ -14,7 +14,13 @@ import fs from "node:fs";
 import path from "node:path";
 
 import { AVAILABLE_MEDIA_TOOLS } from "./grok.mjs";
-import { IMAGE_TO_VIDEO_DURATIONS, REFERENCE_LIMITS, REFERENCE_VIDEO_DURATION, VIDEO_RESOLUTIONS } from "./media-spec.mjs";
+import {
+  IMAGE_TO_VIDEO_DURATIONS,
+  OLDER_REFERENCE_IMAGES,
+  REFERENCE_LIMITS,
+  REFERENCE_VIDEO_DURATION,
+  VIDEO_RESOLUTIONS
+} from "./media-spec.mjs";
 import { extractMediaCalls, listSessionMediaFiles, readSessionUpdates, sessionsRoot } from "./session.mjs";
 
 /** How many recent sessions the checks look through. */
@@ -32,7 +38,7 @@ const MCP_META_TOOLS = new Set(["search_tool", "use_tool"]);
 const FULL_TOOLSET_MIN_OTHER_TOOLS = 3;
 
 /** How many reference images each `reference_to_video` schema takes. */
-const REFERENCE_SCHEMA_IMAGES = Object.freeze({ old: 7, new: REFERENCE_LIMITS.images });
+const REFERENCE_SCHEMA_IMAGES = Object.freeze({ old: OLDER_REFERENCE_IMAGES, new: REFERENCE_LIMITS.images });
 
 /** The durations the plugin allows per video tool, for the limits warning. */
 const DURATION_RULES = Object.freeze({
@@ -55,6 +61,16 @@ export function checkCompatibility() {
     limits: checkAdvertisedLimits(sessions),
     referenceToVideo: checkReferenceSchema(sessions)
   };
+}
+
+/**
+ * What `ref-video` may send to the `reference_to_video` the installed CLI last
+ * offered: `{ maxImages, pinnedFrames }`. Until a session shows the tool, the
+ * newer schema's limits apply.
+ */
+export function referenceInputLimits() {
+  const { schema, maxImages } = checkReferenceSchema(readRecentSessions());
+  return { maxImages: maxImages ?? REFERENCE_LIMITS.images, pinnedFrames: schema !== "old" };
 }
 
 /**

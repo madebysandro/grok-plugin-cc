@@ -145,6 +145,15 @@ export function buildAnimatePrompt({ prompt, image, duration, resolution, tool =
   ]);
 }
 
+/** `--loop`: the video model itself has to be asked for a clip that can repeat. */
+const LOOP_DIRECTION = "Locked camera, seamless loop.";
+
+function withLoopDirection(prompt) {
+  const text = prompt.trim();
+  // No extra period after a sentence that already ends, quoted or not.
+  return `${text}${/[.!?]["'”’)]*$/.test(text) ? "" : "."} ${LOOP_DIRECTION}`;
+}
+
 /**
  * Reference-driven video via `reference_to_video`: reference images, pinned
  * first/last frames, mid-clip keyframes, and preset voices in one call.
@@ -162,6 +171,7 @@ export function buildReferenceVideoPrompt({
   aspect,
   duration,
   resolution,
+  loop = false,
   verbatim = true
 }) {
   const args = { aspect_ratio: aspect, duration, resolution_name: resolution };
@@ -190,7 +200,7 @@ export function buildReferenceVideoPrompt({
     verbatim
       ? "PROMPT — pass this as the `prompt` argument exactly as written, do not rewrite it:"
       : "Video to create (you may refine the wording into the `prompt` argument):",
-    prompt,
+    loop ? withLoopDirection(prompt) : prompt,
     "",
     rulesSection([
       "Call `reference_to_video` exactly once.",

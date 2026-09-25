@@ -46,18 +46,51 @@ export const DEFAULT_IMAGE_MODEL = IMAGE_MODELS[DEFAULT_IMAGE_MODEL_CHOICE];
 export const SERVER_IMAGE_MODEL = "server";
 export const IMAGE_MODEL_CHOICES = Object.freeze([...Object.keys(IMAGE_MODELS), SERVER_IMAGE_MODEL]);
 
-/** The commands whose Grok run makes an image, so `--image-model` means something. */
-const IMAGE_MODEL_COMMANDS = ["image", "edit", "video"];
+const VIDEO_COMMANDS = ["animate", "video", "ref-video"];
+
+/**
+ * The commands each option means something for. Any other command refuses it
+ * rather than silently dropping it, so the user never thinks it applied.
+ * `--image-model` needs a Grok run that makes an image.
+ */
+const OPTION_COMMANDS = Object.freeze({
+  draft: VIDEO_COMMANDS,
+  resolution: VIDEO_COMMANDS,
+  duration: VIDEO_COMMANDS,
+  "image-model": ["image", "edit", "video"],
+  loop: ["ref-video"],
+  voice: ["ref-video"],
+  keyframe: ["ref-video"],
+  "first-frame": ["ref-video"],
+  "last-frame": ["ref-video"]
+});
+
+function notApplicable(option, command) {
+  const commands = OPTION_COMMANDS[option];
+  const list = commands.length === 1 ? commands[0] : `${commands.slice(0, -1).join(", ")} and ${commands.at(-1)}`;
+  return `--${option} does not apply to ${command}; it is for ${list}.`;
+}
 
 /** Why `--image-model` is refused on `command`, for the commands that make no image. */
 export function imageModelNotApplicable(command) {
-  return `--image-model does not apply to ${command}; it is for ${IMAGE_MODEL_COMMANDS.slice(0, -1).join(", ")} and ${IMAGE_MODEL_COMMANDS.at(-1)}.`;
+  return notApplicable("image-model", command);
+}
+
+function rejectInapplicableOptions(command, options) {
+  for (const [option, commands] of Object.entries(OPTION_COMMANDS)) {
+    if (!commands.includes(command) && options[option] !== undefined && options[option] !== false) {
+      throw new MediaOptionError(notApplicable(option, command));
+    }
+  }
 }
 
 export const IMAGE_TO_VIDEO_DURATIONS = Object.freeze([6, 10]);
 export const DEFAULT_VIDEO_DURATION = 6;
 export const REFERENCE_VIDEO_DURATION = Object.freeze({ min: 1, max: 15 });
 export const REFERENCE_LIMITS = Object.freeze({ images: 14, voices: 3, keyframes: 4 });
+
+/** Older Grok CLIs offer a `reference_to_video` with up to 7 images and no pinned frames. */
+export const OLDER_REFERENCE_IMAGES = 7;
 
 /** Keyframe timestamps snap to a 1/3-second grid; closer anchors are rejected. */
 const KEYFRAME_SPACING_SECONDS = 1 / 3;
@@ -130,13 +163,12 @@ function pickSeconds(value, flag) {
  * show the user. `imageModel` is a model id, or `SERVER_IMAGE_MODEL`.
  */
 export function resolveMediaSpec(command, options = {}) {
+  rejectInapplicableOptions(command, options);
   switch (command) {
     case "image":
-      rejectVideoOptions(command, options);
       return { aspect: pickAspect(options.aspect, IMAGE_GEN_ASPECTS, "image_gen"), imageModel: pickImageModel(options["image-model"]) };
 
     case "edit":
-      rejectVideoOptions(command, options);
       if (options.aspect !== undefined && asList(options.image).length < 2) {
         throw new MediaOptionError(
           "--aspect applies to edit only with 2 or more --image inputs; a single-image edit keeps the source image's shape."
@@ -145,9 +177,6 @@ export function resolveMediaSpec(command, options = {}) {
       return { aspect: pickAspect(options.aspect, IMAGE_EDIT_ASPECTS, "image_edit"), imageModel: pickImageModel(options["image-model"]) };
 
     case "animate":
-      if (options["image-model"] !== undefined) {
-        throw new MediaOptionError(imageModelNotApplicable(command));
-      }
       if (options.aspect !== undefined) {
         throw new MediaOptionError(
           "--aspect does not apply to animate: image_to_video keeps the source image's shape. Crop the still first."
@@ -171,7 +200,7 @@ export function resolveMediaSpec(command, options = {}) {
       return {
         aspect: pickAspect(options.aspect, REFERENCE_VIDEO_ASPECTS, "reference_to_video") ?? DEFAULT_REFERENCE_ASPECT,
         duration,
-        resolution: pickResolution(options.resolution)
+        ...pickDraftResolution(options)
       };
     }
 
@@ -188,25 +217,30 @@ function pickImageToVideo(options) {
       `--duration ${duration} is not accepted by image_to_video. Use ${IMAGE_TO_VIDEO_DURATIONS.join(" or ")} seconds.`
     );
   }
+  return { duration, ...pickDraftResolution(options) };
+}
+
+/** `{ resolution, draft }`: `--draft` means the draft resolution and cannot be combined with `--resolution`. */
+function pickDraftResolution(options) {
   const draft = options.draft === true;
   if (draft && options.resolution !== undefined) {
     throw new MediaOptionError(
       `--draft already means ${DRAFT_VIDEO_RESOLUTION}; drop --resolution, or drop --draft to choose the resolution.`
     );
   }
-  return { duration, resolution: draft ? DRAFT_VIDEO_RESOLUTION : pickResolution(options.resolution), draft };
+  return { resolution: draft ? DRAFT_VIDEO_RESOLUTION : pickResolution(options.resolution), draft };
 }
 
-/** An image run would silently ignore these; say so rather than let the user think they applied. */
-function rejectVideoOptions(command, options) {
-  if (options.draft === true) {
-    throw new MediaOptionError(`--draft does not apply to ${command}; it is for animate and video.`);
+/**
+ * A preset voice id, lower-cased. The roster itself is not checked here — the
+ * tool answers an unknown id with the list of voices — only that it is an id.
+ */
+function pickVoice(raw) {
+  const voice = String(raw ?? "").trim().toLowerCase();
+  if (!/^[a-z0-9][a-z0-9_-]*$/.test(voice)) {
+    throw new MediaOptionError(`--voice expects a voice id such as eve or ara, got "${raw}".`);
   }
-  for (const option of ["resolution", "duration"]) {
-    if (options[option] !== undefined) {
-      throw new MediaOptionError(`--${option} does not apply to ${command}; it is for animate and video.`);
-    }
-  }
+  return voice;
 }
 
 function asList(value) {
@@ -234,17 +268,52 @@ export function parseKeyframe(raw) {
  * Gather and check the inputs of a `reference_to_video` run.
  *
  * `resolveImage` maps a user path to what Grok should receive (it throws for a
- * missing file), so this module stays free of filesystem access.
+ * missing file), so this module stays free of filesystem access. The last
+ * argument describes the tool the installed CLI offers: how many reference
+ * images it takes (`maxImages`), and whether it pins first/last frames and
+ * keyframes (`pinnedFrames`; the older tool takes 7 and pins nothing).
  */
-export function resolveReferenceInputs(options, duration, resolveImage = (value) => value) {
-  const images = asList(options.image);
-  const voices = asList(options.voice).map((voice) => String(voice).trim().toLowerCase()).filter(Boolean);
-  const keyframes = asList(options.keyframe).map(parseKeyframe);
-  const firstFrame = options["first-frame"] ?? null;
-  const lastFrame = options["last-frame"] ?? null;
+export function resolveReferenceInputs(
+  options,
+  duration,
+  resolveImage = (value) => value,
+  { maxImages = REFERENCE_LIMITS.images, pinnedFrames = true } = {}
+) {
+  let images = asList(options.image);
+  const voices = asList(options.voice).map(pickVoice);
+  // Sorted, because keyframes take their <IMAGE_i> tags in time order.
+  const keyframes = asList(options.keyframe)
+    .map(parseKeyframe)
+    .sort((left, right) => left.timestampS - right.timestampS);
+  let firstFrame = options["first-frame"] ?? null;
+  let lastFrame = options["last-frame"] ?? null;
 
-  if (images.length > REFERENCE_LIMITS.images) {
-    throw new MediaOptionError(`reference_to_video takes at most ${REFERENCE_LIMITS.images} reference images; got ${images.length}.`);
+  // `--loop`: the one image opens and closes the clip, so it repeats seamlessly.
+  const loop = options.loop === true;
+  if (loop) {
+    if (images.length !== 1) {
+      throw new MediaOptionError("--loop takes exactly one --image: it becomes both the first and the last frame.");
+    }
+    if (firstFrame || lastFrame) {
+      throw new MediaOptionError("--loop sets both the first and the last frame from --image; drop --first-frame and --last-frame.");
+    }
+    firstFrame = images[0];
+    lastFrame = images[0];
+    images = [];
+  }
+
+  if (images.length > maxImages) {
+    const older =
+      maxImages < REFERENCE_LIMITS.images
+        ? ` This Grok CLI offers the older reference_to_video; update it to use up to ${REFERENCE_LIMITS.images}.`
+        : "";
+    throw new MediaOptionError(`reference_to_video takes at most ${maxImages} reference images; got ${images.length}.${older}`);
+  }
+  if (!pinnedFrames && (firstFrame || lastFrame || keyframes.length > 0)) {
+    throw new MediaOptionError(
+      "This Grok CLI offers the older reference_to_video: no first/last frame or keyframes. " +
+        "Update the Grok CLI, or drop --first-frame, --last-frame, --keyframe and --loop."
+    );
   }
   if (voices.length > REFERENCE_LIMITS.voices) {
     throw new MediaOptionError(`reference_to_video takes at most ${REFERENCE_LIMITS.voices} voices; got ${voices.length}.`);
@@ -258,11 +327,18 @@ export function resolveReferenceInputs(options, duration, resolveImage = (value)
     );
   }
 
-  const times = keyframes.map((keyframe) => keyframe.timestampS).sort((left, right) => left - right);
+  const times = keyframes.map((keyframe) => keyframe.timestampS);
   for (const time of times) {
     if (time <= 0 || time >= duration) {
       throw new MediaOptionError(
         `--keyframe at ${time}s must fall strictly inside the ${duration}s clip; use --first-frame / --last-frame for the ends.`
+      );
+    }
+    const snapped = Math.round(time / KEYFRAME_SPACING_SECONDS) * KEYFRAME_SPACING_SECONDS;
+    if (snapped < KEYFRAME_SPACING_SECONDS - 1e-9 || snapped > duration - KEYFRAME_SPACING_SECONDS + 1e-9) {
+      throw new MediaOptionError(
+        `--keyframe at ${time}s snaps to ${Number(snapped.toFixed(2))}s on reference_to_video's 1/3-second grid, ` +
+          `which is an end of the ${duration}s clip; move it inward or use --first-frame / --last-frame.`
       );
     }
   }
@@ -277,6 +353,7 @@ export function resolveReferenceInputs(options, duration, resolveImage = (value)
     voices,
     keyframes: keyframes.map((keyframe) => ({ image: resolveImage(keyframe.image), timestampS: keyframe.timestampS })),
     firstFrame: firstFrame ? resolveImage(firstFrame) : null,
-    lastFrame: lastFrame ? resolveImage(lastFrame) : null
+    lastFrame: lastFrame ? resolveImage(lastFrame) : null,
+    loop
   };
 }

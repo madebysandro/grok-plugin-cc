@@ -162,7 +162,7 @@ test("video-only options are refused for image and edit, naming where they apply
       await assertRejectedBeforeGrok(
         sandbox,
         [...args, flag, ...value],
-        new RegExp(`${flag} does not apply to ${command}; it is for animate and video\\.`)
+        new RegExp(`${flag} does not apply to ${command}; it is for animate, video and ref-video\\.`)
       );
     }
   }
