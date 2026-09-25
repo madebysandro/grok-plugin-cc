@@ -1,6 +1,6 @@
 ---
 description: Generate images with Grok (image_gen)
-argument-hint: '<prompt> [--out DIR] [--aspect 16:9] [--count N] [--name SLUG] [--image-model 2.0|quality|standard|server] [--background]'
+argument-hint: '<prompt> [--out DIR] [--aspect 16:9] [--count N] [--name SLUG] [--image-model 2.0|standard|server|<model id>] [--background]'
 allowed-tools: Bash(node:*), Read
 ---
 
@@ -13,9 +13,9 @@ Argument handling:
 
 - Pass the user's arguments through unchanged. Do not rewrite, translate, expand, or "improve" the prompt — the companion sends it to `image_gen` verbatim on purpose, and rewriting it silently discards the user's art direction.
 - If the user gave no prompt at all, ask for one instead of inventing a subject.
-- `--count` above 1 produces variations of the same subject.
-- `--image-model` picks the image model: `2.0` (the default, `grok-imagine-image-2.0`, which renders text such as accents and prices reliably), `quality`, `standard`, or `server` (no override, so xAI's current default applies). Keep the default unless the user asks for another model.
-- `--aspect` is one of 1:1, 16:9, 9:16, 3:2, 2:3, auto; anything else is refused before Grok runs.
+- `--count` above 1 produces variations of the same subject; Grok makes the calls together, in parallel.
+- `--image-model` picks the image model: `2.0` (the default, `grok-imagine-image-2.0`, xAI's current image model, which renders text such as accents and prices reliably), `standard` (`grok-imagine-image`, which expands the prompt before generating), `server` (no override, so xAI's current default applies), or the id of a newer Grok image model (`grok-imagine-image-…`). `quality` is refused: xAI retires that model on 2026-11-02. Keep the default unless the user asks for another model.
+- `--aspect` is one of 1:1, 16:9, 9:16, 4:3, 3:4, 3:2, 2:3, 2:1, 1:2, 19.5:9, 9:19.5, 20:9, 9:20, 21:9, 5:2, auto (21:9 and 5:2 on Image 2.0 only); anything else is refused before Grok runs.
 - If the user wants Grok to elaborate on a terse prompt, they can pass `--verbatim=false`.
 
 Execution — in the foreground by default, so the user sees the result right away; a single image takes roughly 30 seconds.

@@ -34,7 +34,7 @@ codex plugin marketplace add https://github.com/madebysandro/grok-plugin-cc
 codex plugin add grok@madebysandro-grok
 ```
 
-O `/grok:setup` confere, sem custo, se o CLI está instalado e com login, se as ferramentas de mídia continuam do jeito que o plugin espera e o que o seu plano consegue gerar. Depois:
+O `/grok:setup` confere, sem custo, se o CLI está instalado e com login, se as ferramentas de mídia continuam do jeito que o plugin espera, o que o seu plano consegue gerar e se a xAI lista modelos do Imagine mais novos que os do plugin. Depois:
 
 ```bash
 /grok:image a vintage brass telescope on a wooden desk beside an open star chart, warm lamplight --aspect 16:9 --name telescope
@@ -61,7 +61,7 @@ Os arquivos vão para `grok-media/` no seu workspace.
 | `/grok:overlay` | Texto exato sobre uma imagem, montado em HTML no tamanho dela, opcionalmente a partir de um `brand.json` | Chrome |
 | `/grok:cutout` | Transforma um fundo verde em transparência | Python |
 | `/grok:split` | Divide uma folha (vistas de um personagem, grade de produtos, conjunto de ícones) em um PNG transparente por item | Python |
-| `/grok:setup` | Confere CLI, login, plano e compatibilidade, sem custo | local |
+| `/grok:setup` | Confere CLI, login, plano, compatibilidade e os modelos atuais da xAI, sem custo | local |
 | `/grok:status` | Lista os jobs recentes deste workspace, de qualquer tipo | local |
 | `/grok:result` | Mostra os arquivos e as notas de um job | local |
 | `/grok:cancel` | Cancela um job em andamento | local |
@@ -259,11 +259,11 @@ Com o plugin instalado, você pode pedir com suas palavras, como em "usa o Grok 
 | --- | --- |
 | `--out PASTA` | Pasta de saída (padrão `grok-media/`) |
 | `--name NOME` | Nome base do arquivo |
-| `--aspect PROPORÇÃO` | `image`/`video`: `1:1`, `16:9`, `9:16`, `3:2`, `2:3`, `auto`. O `edit` aceita mais opções, e só com 2 ou mais imagens. `ref-video`: `1:1`, `16:9` (padrão), `9:16`, `4:3`, `3:4`, `3:2`, `2:3`. O `animate` mantém o formato da imagem. O `reframe` aceita qualquer `L:A` |
-| `--count N` | `image`/`edit`: quantidade de resultados, de 1 a 8 |
-| `--image CAMINHO` | Imagem de entrada do `edit` (repetível), do `animate`, do `ref-video` (repetível: as referências) e do `overlay`. Aceita um caminho, `@last` ou `job:<id>[#N]` |
-| `--image-model M` | `image`/`edit`/`video`: `2.0` (padrão, `grok-imagine-image-2.0`), `quality`, `standard`, ou `server` para o padrão atual da xAI |
-| `--duration SEG` | `animate`/`video`: `6` (padrão) ou `10`. `ref-video`: de 1 a 15 (padrão 6) |
+| `--aspect PROPORÇÃO` | `image`/`video`, e `edit` com 2 ou mais imagens: `1:1`, `16:9`, `9:16`, `4:3`, `3:4`, `3:2`, `2:3`, `2:1`, `1:2`, `19.5:9`, `9:19.5`, `20:9`, `9:20`, `21:9`, `5:2`, `auto` (`21:9` e `5:2` só no Image 2.0). `ref-video`: `1:1`, `16:9` (padrão), `9:16`, `4:3`, `3:4`, `3:2`, `2:3`. O `animate` mantém o formato da imagem. O `reframe` aceita qualquer `L:A` |
+| `--count N` | `image`/`edit`: quantidade de resultados, de 1 a 8, feitos em paralelo |
+| `--image CAMINHO` | Imagem de entrada do `edit` (repetível, até 5), do `animate`, do `ref-video` (repetível: as referências) e do `overlay`. Aceita um caminho, `@last` ou `job:<id>[#N]` |
+| `--image-model M` | `image`/`edit`/`video`: `2.0` (padrão, `grok-imagine-image-2.0`, o modelo de imagem atual da xAI), `standard` (1.0, que expande o prompt), `server` para o padrão da xAI, ou o id de um modelo mais novo |
+| `--duration SEG` | `video`: `6` (padrão) ou `10`. `animate` e `ref-video`: de 1 a 15 (padrão 6) |
 | `--resolution R` | `animate`/`video`/`ref-video`: `720p` (padrão) ou `480p` |
 | `--draft` | `animate`/`video`/`ref-video`: o nível 480p do Grok, com 6 s, a menos que `--duration` diga outra coisa |
 | `--background` | Num comando de barra, faz o Claude rodar a geração como job em segundo plano (veja `/grok:status`), em vez de esperar |
@@ -282,14 +282,14 @@ Medidos no Grok CLI 1.0.41, nas execuções ao vivo de [`docs/live-tests.md`](do
 
 | | |
 | --- | --- |
-| **Imagens** | Cerca de 1K: 1024×1024 no quadrado, 1280×720 no formato largo. Uma imagem por chamada de ferramenta; o `--count` faz várias chamadas. |
-| **Referências do edit** | O `image_edit` reduz cada imagem de origem para cerca de 768 px (~400 KB) antes de usá-la, então um texto pequeno ou um logo detalhado na referência podem se perder. Acrescente o texto exato depois com o `/grok:overlay`. |
-| **Resolução do vídeo** | 720p ou o nível 480p, nada acima disso. O 720p saiu com 1280×720 de verdade a partir de uma imagem 16:9. "480p" é um nível, não 480 linhas: o `image_to_video` deu 736×400 a partir de uma imagem 1280×720, e o `reference_to_video` deu 848×480 em 16:9. O próprio CLI recusa 1080p (`resolution_name must be one of: 480p, 720p`); o 1080p do plano vale no app do Grok. |
-| **Duração do vídeo** | `animate` e `video`: 6 ou 10 s. `ref-video`: de 1 a 15 s. |
+| **Imagens** | Cerca de 1K: 1024×1024 no quadrado, 1280×720 no formato largo, 1568×672 em 21:9. Uma imagem por chamada de ferramenta; o `--count` faz várias chamadas, em paralelo. O CLI não escolhe qualidade, então o Image 2.0 serve a geração no nível baixo e a edição no médio. |
+| **Referências do edit** | Até 5 por edição no Image 2.0. O CLI envia um JPEG ou PNG de até 400 KB do jeito que está e reduz qualquer coisa maior para 768 px; o plugin envia essa foto como uma cópia de 1536 px no lugar (Python com Pillow). Um texto pequeno ou um logo detalhado na referência ainda podem ser redesenhados: acrescente o texto exato depois com o `/grok:overlay`. |
+| **Resolução do vídeo** | 720p ou o nível 480p, nada acima disso. O 720p saiu com 1280×720 de verdade a partir de uma imagem 16:9. "480p" é um nível, não 480 linhas: o `animate` deu 736×400 a partir de uma imagem 1280×720, e o `reference_to_video` com imagens de referência deu 848×480 em 16:9. O próprio CLI recusa 1080p (`resolution_name must be one of: 480p, 720p`); o 1080p do plano vale no app do Grok. |
+| **Duração do vídeo** | `video`: 6 ou 10 s. `animate` e `ref-video`: de 1 a 15 s (o `animate` faz as durações diferentes de 6 e 10 s pelo `reference_to_video`, com a imagem fixada como primeiro quadro). |
 | **Som** | Todo clipe sai em H.264 a 24 fps com trilha AAC, sempre, mais uma imagem de capa MJPEG como segundo stream de vídeo. O `/grok:mute` gera uma cópia sem som. |
 | **Entradas do `ref-video`** | O schema aceita até 14 imagens de referência (7 nos CLIs antigos, o que o `/grok:setup` detecta); 8 foram aceitas ao vivo. Até 3 vozes prontas e 4 quadros-chave. |
 | **Tempo** | Uma imagem leva de 15 a 35 s, e um clipe de 45 a 65 s. |
-| **Não existe** | Vídeo em 1080p ou 4K, imagens 2k, edição ou extensão nativa de vídeo, fala ou música avulsas, vozes clonadas, 3D, seed, prompt negativo. |
+| **Não existe** | Vídeo em 1080p ou 4K, imagens 2k, escolha da qualidade da imagem, edição ou extensão nativa de vídeo, fala ou música avulsas, vozes clonadas, 3D, seed, prompt negativo. |
 
 ## Vale saber
 
@@ -332,7 +332,7 @@ Uma comparação resumida com as skills do Higgsfield para o Claude Code, confor
 | --- | --- | --- |
 | **O que cada execução consome** | O pool semanal da assinatura do Grok, compartilhado com Chat, Imagine, Voice e Build. Sem chave de API. | Créditos do Higgsfield, por geração |
 | **Modelos** | Só o Grok Imagine: Image 2.0 para imagens, as ferramentas de vídeo do Grok | Muitos: GPT Image 2.5, Nano Banana, Soul, Seedance, Kling, Veo e outros |
-| **Teto do vídeo** | 720p; 6 ou 10 s a partir de uma imagem, de 1 a 15 s a partir de referências | Seedance 2.5 até 1080p e de 4 a 30 s; 4K com o Seedance 2.0 |
+| **Teto do vídeo** | 720p; de 1 a 15 s a partir de uma imagem ou de referências | Seedance 2.5 até 1080p e de 4 a 30 s; 4K com o Seedance 2.0 |
 | **Consistência** | Imagens de referência, primeiro e último quadros fixos e quadros-chave no `ref-video`; edições a partir de uma imagem base | Soul ID (uma identidade treinada), modelos guiados por referência |
 | **Áudio** | Todo clipe vem com som gerado; vozes prontas só no `ref-video`. Nada de áudio avulso | Áudio avulso: voz, áudio musical e efeitos sonoros |
 | **Edição de vídeo** | Nada nativo. Último quadro → novo clipe → `concat`, e `reframe`, rodando localmente | Fluxos de edição, extensão e reenquadramento |

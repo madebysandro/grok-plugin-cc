@@ -34,7 +34,7 @@ codex plugin marketplace add https://github.com/madebysandro/grok-plugin-cc
 codex plugin add grok@madebysandro-grok
 ```
 
-`/grok:setup` checks, at no cost, that the CLI is installed and signed in, that its media tools still look the way the plugin expects, and what your plan can generate. Then:
+`/grok:setup` checks, at no cost, that the CLI is installed and signed in, that its media tools still look the way the plugin expects, what your plan can generate, and whether xAI lists newer Imagine models than the ones the plugin uses. Then:
 
 ```bash
 /grok:image a vintage brass telescope on a wooden desk beside an open star chart, warm lamplight --aspect 16:9 --name telescope
@@ -61,7 +61,7 @@ Files land in `grok-media/` in your workspace.
 | `/grok:overlay` | Exact text over an image, set in HTML at the image's size, optionally from a `brand.json` | Chrome |
 | `/grok:cutout` | Clear a green-screen background to transparency | Python |
 | `/grok:split` | Split a sheet (turnaround, product grid, icon set) into one transparent PNG per item | Python |
-| `/grok:setup` | Check the CLI, sign-in, plan and compatibility, at no cost | local |
+| `/grok:setup` | Check the CLI, sign-in, plan, compatibility and xAI's current models, at no cost | local |
 | `/grok:status` | List this workspace's recent jobs, of every kind | local |
 | `/grok:result` | Show a job's files and notes | local |
 | `/grok:cancel` | Cancel a running job | local |
@@ -259,11 +259,11 @@ With the plugin installed you can ask in plain words, as in "use Grok to make a 
 | --- | --- |
 | `--out DIR` | Output directory (default `grok-media/`) |
 | `--name SLUG` | Filename stem |
-| `--aspect RATIO` | `image`/`video`: `1:1`, `16:9`, `9:16`, `3:2`, `2:3`, `auto`. `edit` takes a wider set, and only with 2+ images. `ref-video`: `1:1`, `16:9` (default), `9:16`, `4:3`, `3:4`, `3:2`, `2:3`. `animate` keeps the source's shape. `reframe` takes any `W:H` |
-| `--count N` | `image`/`edit`: number of results, 1–8 |
-| `--image PATH` | Input image of `edit` (repeatable), `animate`, `ref-video` (repeatable: the references) and `overlay`. Takes a path, `@last` or `job:<id>[#N]` |
-| `--image-model M` | `image`/`edit`/`video`: `2.0` (default, `grok-imagine-image-2.0`), `quality`, `standard`, or `server` for xAI's current default |
-| `--duration SECS` | `animate`/`video`: `6` (default) or `10`. `ref-video`: 1–15 (default 6) |
+| `--aspect RATIO` | `image`/`video`, and `edit` with 2+ images: `1:1`, `16:9`, `9:16`, `4:3`, `3:4`, `3:2`, `2:3`, `2:1`, `1:2`, `19.5:9`, `9:19.5`, `20:9`, `9:20`, `21:9`, `5:2`, `auto` (`21:9` and `5:2` on Image 2.0 only). `ref-video`: `1:1`, `16:9` (default), `9:16`, `4:3`, `3:4`, `3:2`, `2:3`. `animate` keeps the source's shape. `reframe` takes any `W:H` |
+| `--count N` | `image`/`edit`: number of results, 1–8, made in parallel |
+| `--image PATH` | Input image of `edit` (repeatable, up to 5), `animate`, `ref-video` (repeatable: the references) and `overlay`. Takes a path, `@last` or `job:<id>[#N]` |
+| `--image-model M` | `image`/`edit`/`video`: `2.0` (default, `grok-imagine-image-2.0`, xAI's current image model), `standard` (1.0, which expands the prompt), `server` for xAI's default, or a newer model's id |
+| `--duration SECS` | `video`: `6` (default) or `10`. `animate` and `ref-video`: 1–15 (default 6) |
 | `--resolution R` | `animate`/`video`/`ref-video`: `720p` (default) or `480p` |
 | `--draft` | `animate`/`video`/`ref-video`: Grok's 480p tier, 6 s unless `--duration` says otherwise |
 | `--background` | In a slash command, have Claude run the generation as a background job (see `/grok:status`) instead of waiting for it |
@@ -282,14 +282,14 @@ Measured on Grok CLI 1.0.41, in the live runs of [`docs/live-tests.md`](docs/liv
 
 | | |
 | --- | --- |
-| **Images** | About 1K: 1024×1024 square, 1280×720 wide. One image per tool call; `--count` makes several calls. |
-| **Edit references** | `image_edit` reduces every source image to about 768 px (~400 KB) before using it, so small text or a fine logo in a reference can be lost. Add exact text afterwards with `/grok:overlay`. |
-| **Video resolution** | 720p or the 480p tier, nothing higher. 720p came out a real 1280×720 from a 16:9 still. "480p" is a tier, not 480 lines: `image_to_video` gave 736×400 from a 1280×720 still, and `reference_to_video` gave 848×480 at 16:9. 1080p is refused by the CLI itself (`resolution_name must be one of: 480p, 720p`); a plan's 1080p applies to the Grok app. |
-| **Video length** | `animate` and `video`: 6 or 10 s. `ref-video`: 1–15 s. |
+| **Images** | About 1K: 1024×1024 square, 1280×720 wide, 1568×672 at 21:9. One image per tool call; `--count` makes several calls, in parallel. The CLI sets no quality, so Image 2.0 serves generations at its low tier and edits at medium. |
+| **Edit references** | Up to 5 per edit on Image 2.0. The CLI sends a JPEG or PNG of up to 400 KB as it is and shrinks anything larger to 768 px; the plugin sends such a photo as a 1536 px copy instead (Python with Pillow). Small text or a fine logo in a reference can still be redrawn: add exact text afterwards with `/grok:overlay`. |
+| **Video resolution** | 720p or the 480p tier, nothing higher. 720p came out a real 1280×720 from a 16:9 still. "480p" is a tier, not 480 lines: `animate` gave 736×400 from a 1280×720 still, and `reference_to_video` with reference images gave 848×480 at 16:9. 1080p is refused by the CLI itself (`resolution_name must be one of: 480p, 720p`); a plan's 1080p applies to the Grok app. |
+| **Video length** | `video`: 6 or 10 s. `animate` and `ref-video`: 1–15 s (`animate` makes lengths other than 6 or 10 s with `reference_to_video`, the still pinned as the first frame). |
 | **Sound** | Every clip is H.264 at 24 fps with an AAC soundtrack, always, plus an MJPEG cover picture as a second video stream. `/grok:mute` gives a silent copy. |
 | **`ref-video` inputs** | The schema allows up to 14 reference images (7 on older CLIs, which `/grok:setup` detects); 8 were accepted live. Up to 3 preset voices and 4 keyframes. |
 | **Time** | An image takes 15–35 s and a clip 45–65 s. |
-| **Not available** | 1080p or 4K video, 2k images, native video editing or extension, stand-alone speech or music, cloned voices, 3D, seeds, negative prompts. |
+| **Not available** | 1080p or 4K video, 2k images, a choice of image quality, native video editing or extension, stand-alone speech or music, cloned voices, 3D, seeds, negative prompts. |
 
 ## Things worth knowing
 
@@ -332,7 +332,7 @@ A short comparison with the Higgsfield skills for Claude Code, as they describe 
 | --- | --- | --- |
 | **What each run draws on** | The Grok subscription's weekly pool, shared with Chat, Imagine, Voice and Build. No API key. | Higgsfield credits, per generation |
 | **Models** | Grok Imagine only: Image 2.0 for stills, Grok's video tools | Many: GPT Image 2.5, Nano Banana, Soul, Seedance, Kling, Veo and others |
-| **Video ceiling** | 720p; 6 or 10 s from a still, 1–15 s from references | Seedance 2.5 up to 1080p and 4–30 s; 4K with Seedance 2.0 |
+| **Video ceiling** | 720p; 1–15 s from a still or from references | Seedance 2.5 up to 1080p and 4–30 s; 4K with Seedance 2.0 |
 | **Consistency** | Reference images, pinned first/last frames and keyframes in `ref-video`; edits from a base image | Soul ID (a trained identity), reference-driven models |
 | **Audio** | Every clip comes with generated sound; preset voices only in `ref-video`. No audio on its own | Stand-alone audio: voice, music-like audio and sound effects |
 | **Video editing** | None native. Last frame → new clip → `concat`, and `reframe`, run locally | Edit, extend and reframe workflows |

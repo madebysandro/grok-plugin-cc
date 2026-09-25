@@ -35,8 +35,8 @@ Quote prompts in single quotes so the shell leaves `$` and backticks alone. Ten 
 
 The `grok-generate` skill has the limits measured on Grok CLI 1.0.41; in short:
 
-- There is no text-to-video tool: `video` makes a still with `image_gen`, then animates it.
-- Images come out about 1K; video is 720p or the 480p tier (`--draft`), always with a soundtrack.
+- There is no text-to-video tool: `video` makes a still with `image_gen`, then animates it (6 or 10 s). `animate` takes 1–15 s.
+- Images come out about 1K, one per call, on Image 2.0 (any of its aspect ratios, 21:9 and 5:2 included); `edit` combines up to 5 images. Video is 720p or the 480p tier (`--draft`), always with a soundtrack.
 - Nothing above 720p, no native video editing or extension, no stand-alone voice or music, no 3D. Say so instead of trying.
 - Video fails outright on Zero Data Retention accounts. When video is part of the job, run `node "${CLAUDE_PLUGIN_ROOT}/scripts/grok-companion.mjs" setup` first — it costs nothing, and finding out after five image generations wastes the user's quota.
 

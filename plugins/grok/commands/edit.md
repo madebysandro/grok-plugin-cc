@@ -1,6 +1,6 @@
 ---
 description: Edit an existing image with Grok (image_edit)
-argument-hint: '<instruction> --image PATH [--image PATH2] [--aspect 16:9] [--out DIR] [--count N] [--image-model 2.0|quality|standard|server] [--background]'
+argument-hint: '<instruction> --image PATH [--image PATH2] [--aspect 16:9] [--out DIR] [--count N] [--image-model 2.0|standard|server|<model id>] [--background]'
 allowed-tools: Bash(node:*), Read, Glob
 ---
 
@@ -12,8 +12,10 @@ Raw slash-command arguments:
 Argument handling:
 
 - `--image` is required and repeatable; each one is a path to a source image, a `data:` URL, `@last` (the last file the plugin saved in this workspace, by a generation or a local tool), `job:<id>` (that job's first file) or `job:<id>#N` (its Nth file).
-- `--aspect` only applies with 2 or more `--image` inputs (1:1, 16:9, 9:16, 4:3, 3:4, 3:2, 2:3, 2:1, 1:2, 19.5:9, 9:19.5, 20:9, 9:20, auto); a single-image edit keeps the source's shape.
-- `--image-model` picks the image model: `2.0` (the default, `grok-imagine-image-2.0`, which renders text such as accents and prices reliably), `quality`, `standard`, or `server` (no override, so xAI's current default applies). Keep the default unless the user asks for another model.
+- `--aspect` only applies with 2 or more `--image` inputs (1:1, 16:9, 9:16, 4:3, 3:4, 3:2, 2:3, 2:1, 1:2, 19.5:9, 9:19.5, 20:9, 9:20, 21:9, 5:2, auto; 21:9 and 5:2 on Image 2.0 only); a single-image edit keeps the source's shape.
+- Up to 5 `--image` inputs on Image 2.0 (3 on the older models); the instruction should say which image each thing comes from.
+- A source over 400 KB, or not a JPEG/PNG, goes to Grok as a 1536 px copy the plugin prepares (Python with Pillow), where the Grok CLI would shrink it to 768 px; a note says so, or says the CLI shrank it when Python is missing.
+- `--image-model` picks the image model: `2.0` (the default, `grok-imagine-image-2.0`, xAI's current image model, which renders text such as accents and prices reliably), `standard` (`grok-imagine-image`, which expands the prompt before generating), `server` (no override, so xAI's current default applies), or the id of a newer Grok image model (`grok-imagine-image-…`). `quality` is refused: xAI retires that model on 2026-11-02. Keep the default unless the user asks for another model.
 - If the user described an image but gave no `--image`, find the file first (`Glob`) and confirm the path with them rather than guessing.
 - Pass the instruction through verbatim. Describe only what changes — `image_edit` preserves everything the instruction does not mention, so extra scene description works against the edit.
 - Use this, not `/grok:image`, whenever there is a source image: re-generating from scratch will not preserve the subject.

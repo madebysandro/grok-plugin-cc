@@ -622,7 +622,7 @@ function commandHelp() {
       "grok-companion — drive the Grok CLI from Claude Code / Codex",
       "",
       "Commands:",
-      "  setup                       Check the Grok CLI is installed, signed in, and what it can generate",
+      "  setup                       Check the Grok CLI is installed, signed in, what it can generate, and xAI's current models",
       "  image   <prompt>            Generate image(s) with image_gen",
       `  edit    <prompt> --image P  Edit an image, or combine up to ${EDIT_IMAGE_LIMIT} (${OLDER_EDIT_IMAGE_LIMIT} on older models), with image_edit`,
       "  video   <prompt>            Generate a video (image_gen, then image_to_video)",
