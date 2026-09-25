@@ -216,9 +216,35 @@ test("options a generation command would ignore are refused, naming the commands
 test("a flag the plugin does not have reaches Grok in the prompt rather than vanishing", async (t) => {
   const sandbox = createSandbox(t);
 
-  await generate(sandbox, ["image", "a red kite", "--raw"], [{ tool: "image_gen" }]);
+  await generate(sandbox, ["image", "a red kite", "--vivid"], [{ tool: "image_gen" }]);
 
-  assert.ok(lastPromptLines(sandbox).includes("a red kite --raw"), lastPromptLines(sandbox).join("\n"));
+  assert.ok(lastPromptLines(sandbox).includes("a red kite --vivid"), lastPromptLines(sandbox).join("\n"));
+});
+
+test("the original plugin's dead flags are refused, not sent to Grok", async (t) => {
+  const sandbox = createSandbox(t);
+
+  const refusals = [
+    [["image", "a red kite", "--raw"], /--raw is not an option of this plugin\./],
+    [["video", "a kite at dusk", "--keep-session"], /--keep-session is not an option of this plugin\./],
+    [["status", "--raw"], /--raw is not an option of this plugin\./]
+  ];
+  for (const [args, pattern] of refusals) {
+    await assertRejectedBeforeGrok(sandbox, args, pattern);
+  }
+});
+
+test("ask still takes --read-only as it always did: read-only, and the flag stays out of the prompt", async (t) => {
+  const sandbox = createSandbox(t);
+
+  const { code, stderr } = await generate(sandbox, ["ask", "summarise the README", "--read-only", "--raw"], []);
+
+  assert.equal(code, 0, stderr);
+  const [call] = sandbox.grokCalls();
+  const prompt = call.args[call.args.indexOf("-p") + 1];
+  assert.ok(prompt.startsWith("summarise the README\n"), prompt);
+  assert.ok(!prompt.includes("--read-only") && !prompt.includes("--raw"), prompt);
+  assert.match(call.args[call.args.indexOf("--disallowed-tools") + 1], /\bwrite\b/);
 });
 
 test("animate refuses a second --image instead of animating only the first", async (t) => {
