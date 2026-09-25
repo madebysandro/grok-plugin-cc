@@ -83,7 +83,7 @@ test("a tool error is explained and exits non-zero", async (t) => {
   assert.ok(stdout.includes(error), stdout);
 });
 
-test("a run keeps job state in CLAUDE_PLUGIN_DATA, outside the workspace", async (t) => {
+test("a run keeps job state in the plugin's data folder, outside the workspace, never in another plugin's", async (t) => {
   const sandbox = createSandbox(t);
   sandbox.scenario({ calls: [{ tool: "image_gen", prompt: PROMPT }] });
 
@@ -91,6 +91,22 @@ test("a run keeps job state in CLAUDE_PLUGIN_DATA, outside the workspace", async
 
   assert.deepEqual(fs.readdirSync(sandbox.workspace), ["grok-media"]);
   assert.equal(fs.readdirSync(path.join(sandbox.pluginData, "state")).length, 1);
+  assert.ok(!fs.existsSync(path.join(sandbox.otherPluginData, "state")), "another plugin's CLAUDE_PLUGIN_DATA is left alone");
+});
+
+test("without GROK_PLUGIN_DATA, a run uses CLAUDE_PLUGIN_DATA only when it is the plugin's own", async (t) => {
+  const sandbox = createSandbox(t);
+  sandbox.scenario({ calls: [{ tool: "image_gen", prompt: PROMPT }] });
+
+  // Another plugin's folder, as its session hook exports it: ignored, so a checkout of the plugin falls back to TMPDIR.
+  await sandbox.run(["image", PROMPT], { env: { GROK_PLUGIN_DATA: "" } });
+  assert.ok(!fs.existsSync(path.join(sandbox.otherPluginData, "state")));
+  assert.equal(fs.readdirSync(path.join(sandbox.tmp, "grok-companion")).length, 1);
+
+  // The plugin's own folder, named grok-<marketplace>: used.
+  const own = path.join(path.dirname(sandbox.otherPluginData), "grok-madebysandro-grok");
+  await sandbox.run(["image", PROMPT], { env: { GROK_PLUGIN_DATA: "", CLAUDE_PLUGIN_DATA: own } });
+  assert.equal(fs.readdirSync(path.join(own, "state")).length, 1);
 });
 
 // Slash commands decide to run in the background and pass their $ARGUMENTS

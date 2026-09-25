@@ -1,6 +1,31 @@
 # Changelog
 
-## Unreleased
+## 3.0.0
+
+Calibrates the plugin to Image 2.0 and to what the Grok CLI can actually ask of it, and keeps the plugin's records out of other plugins' data. Measured on Grok CLI 1.0.41.
+
+### Breaking changes
+
+- `--image-model quality` is refused, as are `grok-imagine-image-quality`, its aliases and `grok-imagine-image-pro`: xAI retires that model on 2026-11-02 and serves Image 2.0 at low quality in its place. Use `2.0` (the default) or `standard`.
+- `edit` refuses a sixth `--image` on Image 2.0, and a fourth on the older models, instead of letting the service reject it.
+- Job records move to the plugin's own data folder (see Fixes), so `/grok:status`, `@last` and `job:<id>` start with an empty history after the update. Earlier records are left where they were.
+
+### Fixes
+
+- **The plugin no longer writes into another plugin's data.** The Codex plugin's SessionStart hook exports its `CLAUDE_PLUGIN_DATA` into every command of a Claude Code session, and this plugin kept its job records under whatever that variable said. Both plugins lay their state out the same way (`state/<workspace>-<hash>/state.json`), so in a workspace used with both, their jobs landed in one file, and each rewrite by this plugin dropped the Codex plugin's per-workspace settings. The data folder is now `GROK_PLUGIN_DATA` when set, else `CLAUDE_PLUGIN_DATA` only when it is this plugin's own (`…/plugins/data/grok-<marketplace>`), else the data folder Claude Code keeps for the installed plugin, worked out from where it is installed, else a temp directory. The tests now run with another plugin's `CLAUDE_PLUGIN_DATA` in the environment and a private `TMPDIR`.
+
+### Calibrated to Image 2.0 and Imagine's current limits
+
+Checked against xAI's docs (release notes of August and September 2026, the models page, the Imagine pages, the migration guide) and the Grok CLI's source, then in six live runs on Grok CLI 1.0.41 (`docs/live-tests.md`, calibration round).
+
+- **Every aspect ratio Image 2.0 takes.** `image`, `video` and multi-image `edit` accept 1:1, 16:9, 9:16, 4:3, 3:4, 3:2, 2:3, 2:1, 1:2, 19.5:9, 9:19.5, 20:9, 9:20, 21:9, 5:2 and auto. The CLI passes `aspect_ratio` through unchecked, so its tool description, which lists five, was never the limit; 21:9 came out 1568×672. The older models keep the list without 21:9 and 5:2.
+- **Five images per edit** on Image 2.0 (three before August), confirmed live.
+- **`--image-model` takes a model id** (`grok-imagine-image-…`) as it is, so a model newer than the plugin can be used at once. `standard` (1.0) now notes that it expands the prompt before generating.
+- **`--count` in parallel.** The calls are asked for in one step, and the CLI runs up to eight image calls of a step at once.
+- **`animate` from 1 to 15 s.** 6 and 10 s still use `image_to_video`; any other length uses `reference_to_video` with the still pinned as the first frame, at the closest of its aspect ratios (a note says when the still has none of them). The size is read from the still's header: PNG, JPEG (EXIF orientation applied), GIF or WebP.
+- **Large edit sources keep their detail.** The CLI sends a JPEG or PNG of up to 400 KB to `image_edit` as it is and shrinks anything else to 768 px. `edit` now sends such a photo as a copy of up to 1536 px under 400 KB, made by `scripts/refprep.py` (Python with Pillow) and deleted after the run; a live edit sent a 1536×864 copy and the service took it. Without Python and Pillow the photo goes as before, with a note. The manifest records `preparedReferences`.
+- **`/grok:setup` watches for Grok moving on.** "Tool options" warns when a media tool starts or stops taking a parameter (a `resolution`, `quality` or `n` on the image tools would be worth offering). "Latest models" reads xAI's public model list and release notes (docs.x.ai, no credentials) and warns when they name a newer image or video model than the plugin's, or retire one of them; `GROK_PLUGIN_DOCS_URL` points it elsewhere, and `off` skips it. The tests never reach the network.
+- **What the CLI cannot do, now documented.** It asks for one 1K image per call and never sets `quality`, so Image 2.0 serves generations at its low tier and edits at medium; 2K, `n` up to 10, a chosen quality, 1080p, text-to-video, silent clips and video editing or extension exist in the Imagine API only. A live comparison of a generation with the same scene made as an edit (medium) found no gain worth routing around it, so there is no quality option.
 
 ### Documentation
 

@@ -42,11 +42,11 @@ Quote the prompt in single quotes, so the shell passes `$`, `!` and backticks th
 
 | The user wants | Command | Notes |
 | --- | --- | --- |
-| An image from a description | `/grok:image "<prompt>"` | Image 2.0 by default. `--aspect` 1:1, 16:9, 9:16, 3:2, 2:3, auto. Short text (a name, a price, accents) is fine drawn directly. |
-| Variations of one idea | `/grok:image "<prompt>" --count N` | 1–8, one tool call each. |
-| To change an existing image, or combine several | `/grok:edit "<only the change>" --image P [--image P2]` | Describe just the change; the rest is kept. `--aspect` only with 2+ images. References are shrunk to ~768 px: fine detail can be lost. |
+| An image from a description | `/grok:image "<prompt>"` | Image 2.0 by default. `--aspect` 1:1, 16:9, 9:16, 4:3, 3:4, 3:2, 2:3, 2:1, 1:2, 19.5:9, 9:19.5, 20:9, 9:20, 21:9 (cinematic), 5:2 (wide banner), auto. Short text (a name, a price, accents) is fine drawn directly. |
+| Variations of one idea | `/grok:image "<prompt>" --count N` | 1–8, one tool call each, made together in parallel. |
+| To change an existing image, or combine several | `/grok:edit "<only the change>" --image P [--image P2 …]` | Describe just the change; the rest is kept. Up to 5 images; `--aspect` only with 2+. A photo over 400 KB goes as a 1536 px copy the plugin prepares. |
 | The same character or product across a series | `/grok:image` once, then `/grok:edit` from that base | No seed: re-generating rolls a new subject. |
-| To animate a still | `/grok:animate "<the motion>" --image P` | 720p, 6 s by default; `--duration 10`. The clip keeps the still's shape: no `--aspect`. |
+| To animate a still | `/grok:animate "<the motion>" --image P` | 720p, 6 s by default; `--duration` 1–15. The clip keeps the still's shape (for lengths other than 6 or 10 s, the closest of `ref-video`'s ratios): no `--aspect`. |
 | A video from a description | `/grok:video "<scene>" [--aspect 16:9]` | An `image_gen` still, then its animation; both files kept. |
 | A video that keeps people, products or places from reference images; exact first/last frame; images at chosen moments; someone speaking; a seamless loop; 1–15 s | `/grok:ref-video "<prompt with <IMAGE_i>>" --image …` | See the `ref-video` notes below. |
 | To continue a clip into the next | `/grok:last-frame <clip>`, then `/grok:animate "<motion>" --image @last` (or `/grok:ref-video --first-frame @last`) | The real last frame, not the cover picture. |
@@ -72,8 +72,9 @@ Any file input takes `@last` (the last file the plugin saved in this workspace, 
 
 ## What Grok really does (Grok CLI 1.0.41, measured live)
 
-- **Images** come out about 1K: 1024×1024 square, 1280×720 wide. Image 2.0 (the default; `--image-model quality|standard|server` goes back) renders accents and prices right: "TORREFAÇÃO" and "CAFÉ" in the round's live tests (`docs/live-tests.md`), "R$ 5,90" in a live test made before the round. `image_edit` reduces every reference image to about 768 px / 400 KB before using it, so fine detail in a reference — small text, a logo, a pattern — can be lost or redrawn. Tell the user before an edit that depends on such detail, and for exact text or logos add them afterwards with `/grok:overlay`.
-- **Video** is 720p or the 480p tier, nothing higher. 720p gave a real 1280×720 from a 16:9 still. The "480p" tier is not 480 lines: `animate`/`video` gave 736×400 from a 1280×720 still, `ref-video` 848×480 for 16:9 whatever the references' shape. `animate`/`video` last 6 or 10 s; `ref-video` 1–15 s.
+- **Images** come out about 1K, one per tool call: 1024×1024 square, 1280×720 wide, 1568×672 at 21:9. Image 2.0 — xAI's current image model and the default — renders accents and prices right: "TORREFAÇÃO" and "CAFÉ" in the round's live tests (`docs/live-tests.md`), "R$ 5,90" in a live test made before the round. `--image-model standard` (1.0, which rewrites the prompt), `server` or a newer model's id (`grok-imagine-image-…`) picks another; `/grok:setup` says when xAI lists a newer one. The Grok CLI never sets a quality, so generations come at Image 2.0's low tier and edits at medium; a live comparison found no gain worth routing around that.
+- **Edit references.** The CLI sends a JPEG or PNG of up to 400 KB as it is and shrinks anything larger to 768 px; the plugin sends such a photo as a 1536 px copy instead (Python with Pillow; without them the CLI shrinks it, and a note says so). Small text or a logo in a reference can still come back redrawn — in the live five-image edit, COFFEE became "COFFÉ". Tell the user before an edit that depends on such detail, and for exact text or logos add them afterwards with `/grok:overlay`.
+- **Video** is 720p or the 480p tier, nothing higher. 720p gave a real 1280×720 from a 16:9 still. The "480p" tier is not 480 lines: `animate`/`video` gave 736×400 from a 1280×720 still (an 8 s `animate` too), `ref-video` with reference images 848×480 for 16:9 whatever their shape. `video` lasts 6 or 10 s; `animate` and `ref-video` 1–15 s.
 - Every clip is H.264 at 24 fps **with an AAC soundtrack**, plus an MJPEG cover picture as a second video stream.
 - `ref-video` took **8 reference images** on 1.0.41 (its schema says 14; older CLIs, 7 — `/grok:setup` shows which). The voice `eve` spoke a Portuguese line intelligibly. `--loop` gave first and last frames with an SSIM of 0.96.
 - There is no seed: the same prompt gives a different result each time.
@@ -81,7 +82,7 @@ Any file input takes `@last` (the last file the plugin saved in this workspace, 
 
 ## What does not exist — say so, do not promise it
 
-- 1080p or 4K video (a plan's 1080p is for the Grok app, not the CLI), 2k images, several images from one call.
+- 1080p or 4K video (a plan's 1080p is for the Grok app, not the CLI), 2k images, several images from one call, a choice of image quality. The Imagine API has them; the Grok CLI does not pass them on.
 - Editing or extending an existing video natively. To extend: `last-frame`, then a new clip from it, then `concat`.
 - Stand-alone speech, music or sound effects, and cloned voices. Voices exist only inside a `ref-video` clip.
 - 3D models, AI upscaling, vector output, seeds or negative prompts, hosted URLs.

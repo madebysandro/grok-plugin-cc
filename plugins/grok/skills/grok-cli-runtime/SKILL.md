@@ -13,12 +13,23 @@ Grok CLI 1.0 exposes exactly four media tools:
 
 | Tool | Purpose | Limits (1.0.41) |
 | --- | --- | --- |
-| `image_gen` | New image from a text prompt | `aspect_ratio` 1:1, 16:9, 9:16, 3:2, 2:3, auto; the CLI fixes one image at "1k" (1024×1024, 1280×720) |
-| `image_edit` | Modify an existing image, given one or more source images | references reduced to about 768 px / 400 KB; `aspect_ratio` only for multi-image edits (1:1, 16:9, 9:16, 4:3, 3:4, 3:2, 2:3, 2:1, 1:2, 19.5:9, 9:19.5, 20:9, 9:20, auto) |
+| `image_gen` | New image from a text prompt | `aspect_ratio` passed through unchecked: Image 2.0 takes 1:1, 16:9, 9:16, 4:3, 3:4, 3:2, 2:3, 2:1, 1:2, 19.5:9, 9:19.5, 20:9, 9:20, 21:9, 5:2 and auto (the tool's description lists fewer; 21:9 ran live), older models all but 21:9 and 5:2; the CLI fixes one image at "1k" (1024×1024, 1280×720, 1568×672) |
+| `image_edit` | Modify an existing image, given one or more source images | up to 5 sources on Image 2.0, 3 on older models; a JPEG or PNG of up to 400 KB is sent as it is, anything else shrunk to 768 px / 400 KB; `aspect_ratio` only for multi-image edits, same list as `image_gen` |
 | `image_to_video` | Animate a still into a clip | `duration` 6 or 10; `resolution_name` 480p or 720p (the tool defaults to 480p; the plugin asks for 720p); no aspect — the clip keeps the still's shape |
-| `reference_to_video` | Generate a clip from reference images, pinned first/last frames, keyframes and preset voices (`/grok:ref-video`) | `aspect_ratio` 1:1, 16:9, 9:16, 4:3, 3:4, 3:2, 2:3; `duration` 1–15; `images` up to 14 (7 on the older schema; 8 ran live), `voices` up to 3, `keyframes` up to 4 on a 1/3 s grid |
+| `reference_to_video` | Generate a clip from reference images, pinned first/last frames, keyframes and preset voices (`/grok:ref-video`, and `/grok:animate` for lengths other than 6 or 10 s) | `aspect_ratio` 1:1, 16:9, 9:16, 4:3, 3:4, 3:2, 2:3; `duration` 1–15; `images` up to 14 (7 on the older schema; 8 ran live), `voices` up to 3, `keyframes` up to 4 on a 1/3 s grid |
 
 Anything above 720p is refused by the CLI itself (`resolution_name must be one of: 480p, 720p`) — a plan's 1080p is for the Grok app. The plugin checks every limit it knows before starting Grok (`lib/media-spec.mjs`), so a bad option costs nothing.
+
+### What the CLI sends, whatever the Imagine API allows
+
+From the CLI's source (github.com/xai-org/grok-build, as of 1.0.41) and xAI's docs:
+
+- **One image per call, at 1K, with no quality.** `image_gen` and `image_edit` send `n: 1` and `resolution: "1k"`, and never `quality`, so Image 2.0 serves its `auto` tier: `low` for a generation, `medium` for an edit. The API's 2K, `n` up to 10 and `quality` are out of reach. Several calls issued in one step run in parallel (8 at most by default), which is how `--count` stays quick.
+- **Edit references.** `compress_reference` passes a JPEG or PNG of up to 400 KB through untouched, at any pixel size, and re-encodes anything else to 768 px and 400 KB. The service took a 1536 px reference in a live run, so the plugin sends a larger photo as a 1536 px copy of under 400 KB (`lib/ref-prep.mjs`, `scripts/refprep.py`, Python with Pillow) instead of letting the CLI shrink it.
+- **Video.** The video tools call `grok-imagine-video-1.5`, fixed in the source. The API's text-to-video, 1080p, silent clips, video editing and extension are not tools.
+- **A first frame, any length.** `reference_to_video` with only `first_frame` animates that still for 1–15 s. `animate` uses it for the lengths `image_to_video` does not take, with the aspect ratio of its list closest to the still (a note says when the still has none of them); at 480p it gave 736×400 from a 1280×720 still, like `image_to_video`.
+
+`/grok:setup` watches for this changing: it warns when a media tool starts or stops taking a parameter (a `resolution`, `quality` or `n` appearing would be worth offering), and when xAI's public model list (docs.x.ai/developers/models.md, read without credentials) names an image or video model newer than the plugin's, or the release notes retire one of them. `GROK_PLUGIN_DOCS_URL=off` skips the latter.
 
 **There is no `video_gen`.** The name appears in the binary's tool table but is never offered to the agent. Asking for it by name makes the model search MCP discovery for several turns and then report `'video_gen' is not a valid MCP tool name` — a confusing failure that looks like a plugin bug.
 
@@ -41,7 +52,7 @@ grok -p "<prompt>" --always-approve --output-format json --cwd <dir> --max-turns
 
 - `--output-format json` prints one envelope: `{ text, sessionId, usage, total_cost_usd, num_turns }`. `sessionId` is the key to everything below.
 - `--always-approve` is required; a headless run otherwise blocks on tool approval.
-- `--tools` is an allowlist, one per command: image → `image_gen`, edit → `image_edit`, animate → `image_to_video`, video → `image_gen,image_to_video`, ref-video → `reference_to_video`. It still keeps Grok's always-on MCP meta-tools (`search_tool`, `use_tool`), so `--disallowed-tools` stays; when both flags are given the denylist wins. Grok silently ignores names it does not recognise, so listing both `run_terminal_command` and the legacy `run_terminal_cmd` is safe.
+- `--tools` is an allowlist, one per command: image → `image_gen`, edit → `image_edit`, animate → `image_to_video` (or `reference_to_video` for other lengths), video → `image_gen,image_to_video`, ref-video → `reference_to_video`. It still keeps Grok's always-on MCP meta-tools (`search_tool`, `use_tool`), so `--disallowed-tools` stays; when both flags are given the denylist wins. Grok silently ignores names it does not recognise, so listing both `run_terminal_command` and the legacy `run_terminal_cmd` is safe.
 - `--session-id` takes a **new** UUID (Grok errors if it is in use). The plugin generates it, so the session folder is known before the run starts.
 - `--max-turns` bounds a run that goes sideways.
 - `ask` keeps Grok's full toolset and the user's setup: no `--tools`, no isolation variables, and `--disallowed-tools` only for the write tools while it is read-only.
@@ -58,7 +69,7 @@ What `grok inspect --json` reports under those variables (1.0.41, 2026-09-24):
 
 ### Image model
 
-`image`, `edit` and `video` (its opening frame) ask for **`grok-imagine-image-2.0`** by default, through `GROK_IMAGE_GEN_MODEL_OVERRIDE` (for `image_gen`) or `GROK_IMAGE_EDIT_MODEL_OVERRIDE` (for `image_edit`) in the run's environment. `--image-model quality` (`grok-imagine-image-quality`, the server's default, retired on 2026-11-02), `standard` (`grok-imagine-image`) or `server` (no override; an inherited one is removed too) switch it. The variable is honoured — a made-up model name fails with an HTTP 404 naming it — but the session log never records which image model ran; the manifest records the one asked for.
+`image`, `edit` and `video` (its opening frame) ask for **`grok-imagine-image-2.0`**, xAI's current image model, by default, through `GROK_IMAGE_GEN_MODEL_OVERRIDE` (for `image_gen`) or `GROK_IMAGE_EDIT_MODEL_OVERRIDE` (for `image_edit`) in the run's environment. Without an override the CLI falls back to `grok-imagine-image-quality`, which xAI retires on 2026-11-02 (Image 2.0 at `low` serves it from then on); the plugin no longer offers it. `--image-model standard` (`grok-imagine-image`, 1.0, which expands the prompt before generating — the result says so), `server` (no override; an inherited one is removed too) or a model id (`grok-imagine-image-…`, passed as it is, for a model newer than the plugin) switch it. The variable is honoured — a made-up model name fails with an HTTP 404 naming it — but the session log never records which image model ran; the manifest records the one asked for.
 
 ### Recursion guard
 
@@ -82,11 +93,15 @@ The plugin copies them out itself rather than asking the agent to. Asking costs 
 
 Note the bucket is keyed on the cwd Grok resolved, which may differ from the one passed in — `/tmp` versus `/private/tmp` on macOS, for instance. `resolveSessionDir` tries the encoded path, then the real path, then scans every bucket for the session id.
 
+### The plugin's own records
+
+Job records (what `/grok:status`, `/grok:result`, `@last` and `job:<id>` read), run logs and one-time notices live in the plugin's data folder, under `state/<workspace>-<hash>/`: `GROK_PLUGIN_DATA` when set, else `CLAUDE_PLUGIN_DATA` when it is this plugin's own (`…/plugins/data/grok-<marketplace>`), else the data folder Claude Code keeps for the installed plugin, else a temp directory. Another plugin's `CLAUDE_PLUGIN_DATA` is never used: the Codex plugin's SessionStart hook exports its own into every command of a session, and its `state/` has the same layout, so sharing it would mix both plugins' jobs and drop its settings. Records written there before 3.0.0 stay where they are; the history starts afresh in the right folder.
+
 ## What comes back
 
 - Images: JPEG at about 1K.
 - Clips: H.264 at 24 fps **with an AAC soundtrack, always**, plus an MJPEG cover picture as a second video stream (`attached_pic`). Tools that read a clip must use the first real video stream (`v:0`), not "any video stream" — the plugin's local tools pick streams by index for this reason.
-- 720p gave a real 1280×720 for a 16:9 still. The 480p tier is not 480 lines: `image_to_video` gave 736×400 from a 1280×720 still, `reference_to_video` 848×480 for `aspect_ratio: 16:9` whatever the references' shape. Older 480p clips of square stills on the test machine were 544×544; what decides the size is not known.
+- 720p gave a real 1280×720 for a 16:9 still. The 480p tier is not 480 lines: `image_to_video` gave 736×400 from a 1280×720 still, and so did `reference_to_video` with only that still as `first_frame`; with reference images it gave 848×480 for `aspect_ratio: 16:9` whatever their shape. Older 480p clips of square stills on the test machine were 544×544; what decides the size is not known.
 
 ## Harvesting assets from `updates.jsonl`
 

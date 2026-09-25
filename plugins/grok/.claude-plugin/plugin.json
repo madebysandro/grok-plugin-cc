@@ -1,6 +1,6 @@
 {
   "name": "grok",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "description": "Use Grok from Claude Code to generate images and video, or to delegate a task.",
   "author": {
     "name": "Ariel Aizenshtat"

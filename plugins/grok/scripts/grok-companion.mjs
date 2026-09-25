@@ -22,6 +22,7 @@ import {
 } from "./lib/grok.mjs";
 import { MEDIA_TOOL_ALLOWLIST, WORKER_ENV_VAR, buildGrokInvocation } from "./lib/invocation.mjs";
 import { checkCompatibility, referenceInputLimits } from "./lib/compat.mjs";
+import { checkLatestModels } from "./lib/model-watch.mjs";
 import { gitNotes } from "./lib/git-notice.mjs";
 import { buildReadinessReport } from "./lib/readiness.mjs";
 import {
@@ -39,23 +40,28 @@ import {
   DEFAULT_VIDEO_DURATION,
   DEFAULT_VIDEO_RESOLUTION,
   DRAFT_VIDEO_RESOLUTION,
-  IMAGE_EDIT_ASPECTS,
-  IMAGE_GEN_ASPECTS,
+  EDIT_IMAGE_LIMIT,
+  IMAGE_ASPECTS,
   IMAGE_MODEL_CHOICES,
   IMAGE_TO_VIDEO_DURATIONS,
   MediaOptionError,
+  OLDER_EDIT_IMAGE_LIMIT,
   OLDER_REFERENCE_IMAGES,
   REFERENCE_LIMITS,
   REFERENCE_VIDEO_ASPECTS,
   REFERENCE_VIDEO_DURATION,
   SERVER_IMAGE_MODEL,
   VIDEO_RESOLUTIONS,
+  imageModelNote,
+  nearestReferenceAspect,
   optionNotApplicable,
   resolveMediaSpec,
   resolveReferenceInputs
 } from "./lib/media-spec.mjs";
+import { readImageSize } from "./lib/image-size.mjs";
 import { MediaToolError } from "./lib/ffmpeg.mjs";
 import { LOCAL_TOOLS, runLocalTool } from "./lib/local-tools.mjs";
+import { prepareEditReferences } from "./lib/ref-prep.mjs";
 import { resolveImageArg } from "./lib/refs.mjs";
 import {
   findJob,
@@ -63,6 +69,7 @@ import {
   listJobs,
   reconcileJobStatus,
   resolveJobLogFile,
+  resolveStateDir,
   upsertJob
 } from "./lib/state.mjs";
 import { indent, renderJobList, renderMediaFailure, renderMediaResult, truncate } from "./lib/render.mjs";
@@ -196,7 +203,8 @@ async function runMediaCommand({ command, options, positionals, cwd, promptBuild
   }
 
   // Input files are checked against the resolved spec (keyframes must fall
-  // inside the clip) — still before any job or Grok run.
+  // inside the clip) — still before any job or Grok run. They may come with
+  // notes for the result, and an aspect ratio worked out from them.
   let inputs = {};
   if (extra.resolveInputs) {
     try {
@@ -205,6 +213,21 @@ async function runMediaCommand({ command, options, positionals, cwd, promptBuild
       fail(String(error?.message ?? error));
     }
   }
+  const { notes: inputNotes = [], ...promptInputs } = inputs;
+
+  // Inputs Grok should get in another form (an edit's large photos), once every check has passed.
+  let preparation = { promptExtras: {}, notes: [], meta: {}, cleanup: () => {} };
+  if (extra.prepare) {
+    preparation = await extra.prepare();
+  }
+  const requestNotes = [imageModelNote(spec.imageModel), ...inputNotes, ...preparation.notes].filter(Boolean);
+
+  // What the manifest records: the settings as sent, not how the plugin chose the tool.
+  const { videoTool, ...recorded } = spec;
+  if (!recorded.aspect && promptInputs.aspect) {
+    recorded.aspect = promptInputs.aspect;
+  }
+  Object.assign(recorded, preparation.meta);
 
   const outDir = resolveOutDir(options.out, cwd, defaultOutDir);
 
@@ -215,8 +238,10 @@ async function runMediaCommand({ command, options, positionals, cwd, promptBuild
     resolution: spec.resolution ?? null,
     count,
     verbatim: options.verbatim !== false,
+    ...(videoTool ? { tool: videoTool } : {}),
     ...extra.promptExtras,
-    ...inputs
+    ...preparation.promptExtras,
+    ...promptInputs
   });
 
   const jobId = options.job || generateJobId(command);
@@ -235,25 +260,32 @@ async function runMediaCommand({ command, options, positionals, cwd, promptBuild
 
   const startedAt = Date.now();
 
-  const run = await runGrokHeadless({
-    binary,
-    ...buildGrokInvocation(command, {
-      prompt: grokPrompt,
-      cwd,
-      model: options.model,
-      effort: options.effort,
-      maxTurns: extra.maxTurns ?? 8,
-      imageModel: spec.imageModel
-    }),
-    timeoutMs,
-    onStderr: (chunk) => {
-      try {
-        fs.appendFileSync(logFile, chunk);
-      } catch {
-        // logging is best-effort
+  let run;
+  try {
+    run = await runGrokHeadless({
+      binary,
+      ...buildGrokInvocation(command, {
+        prompt: grokPrompt,
+        cwd,
+        model: options.model,
+        effort: options.effort,
+        maxTurns: extra.maxTurns ?? 8,
+        imageModel: spec.imageModel,
+        tools: videoTool ? [videoTool] : undefined
+      }),
+      timeoutMs,
+      onStderr: (chunk) => {
+        try {
+          fs.appendFileSync(logFile, chunk);
+        } catch {
+          // logging is best-effort
+        }
       }
-    }
-  });
+    });
+  } finally {
+    // Grok has read the prepared copies by now; they were only ever for this run.
+    preparation.cleanup();
+  }
 
   const elapsedMs = Date.now() - startedAt;
   const sessionId = run.sessionId;
@@ -285,10 +317,10 @@ async function runMediaCommand({ command, options, positionals, cwd, promptBuild
     writeManifest({
       outDir,
       entries: saved,
-      meta: { command, requestedPrompt: prompt, sessionId, ...spec, costUsd: Number.isFinite(costUsd) ? costUsd : null }
+      meta: { command, requestedPrompt: prompt, sessionId, ...recorded, costUsd: Number.isFinite(costUsd) ? costUsd : null }
     });
 
-    const notes = [];
+    const notes = [...requestNotes];
     if (missing.length > 0) {
       notes.push(`Note: ${missing.length} generated file(s) were reported by Grok but no longer exist on disk.`);
     }
@@ -347,11 +379,11 @@ async function runMediaCommand({ command, options, positionals, cwd, promptBuild
     writeManifest({
       outDir,
       entries: saved,
-      meta: { command, requestedPrompt: prompt, sessionId, ...spec, partial: true, costUsd: Number.isFinite(costUsd) ? costUsd : null }
+      meta: { command, requestedPrompt: prompt, sessionId, ...recorded, partial: true, costUsd: Number.isFinite(costUsd) ? costUsd : null }
     });
   }
 
-  const notes = gitNotes(cwd, outDir, saved.map((asset) => asset.file));
+  const notes = [...requestNotes, ...gitNotes(cwd, outDir, saved.map((asset) => asset.file))];
   upsertJob(cwd, {
     id: jobId,
     status: saved.length > 0 ? "partial" : "failed",
@@ -373,6 +405,35 @@ async function runMediaCommand({ command, options, positionals, cwd, promptBuild
     process.stdout.write(`${text}\n`);
   }
   process.exit(2);
+}
+
+/**
+ * `animate` through `reference_to_video` (a length `image_to_video` does not
+ * take): that tool needs an aspect ratio, so take the one of its list closest
+ * to the still's shape, and say so when the still has none of them.
+ */
+function stillAsFirstFrame(image, label) {
+  if (!referenceInputLimits().pinnedFrames) {
+    throw new Error(
+      "This Grok CLI offers the older reference_to_video, which cannot pin a first frame, so animate only makes 6 or 10 s clips. " +
+        "Update the Grok CLI, or use --duration 6 or 10."
+    );
+  }
+  const size = readImageSize(image);
+  if (!size) {
+    throw new Error(
+      `Could not read the size of ${label}. A clip of this length is made with reference_to_video, which needs the still's ` +
+        "shape to pick its aspect ratio; save the still as PNG, JPEG, WebP or GIF."
+    );
+  }
+  const { aspect, exact } = nearestReferenceAspect(size.width, size.height);
+  const notes = exact
+    ? []
+    : [
+        `Note: reference_to_video, which makes clips of this length, offers no ${size.width}×${size.height} shape; ` +
+          `the clip was asked for at ${aspect}, the closest it has, so the still is fitted to that.`
+      ];
+  return { aspect, notes };
 }
 
 /** The local tools (`LOCAL_TOOLS`): ffmpeg, Chrome or Python on local files, no Grok. */
@@ -409,7 +470,8 @@ async function commandSetup({ options }) {
   const auth = binary ? readGrokAuth() : { authenticated: false, reason: "grok-not-installed" };
   const plan = binary ? readGrokPlan() : null;
 
-  const { text, payload } = buildReadinessReport({ binary, version, auth, plan, compat: checkCompatibility(), zdrHint: ZDR_HINT });
+  const models = await checkLatestModels();
+  const { text, payload } = buildReadinessReport({ binary, version, auth, plan, compat: checkCompatibility(), models, zdrHint: ZDR_HINT });
   emit({ json: Boolean(options.json), payload, text });
 }
 
@@ -566,11 +628,11 @@ function commandHelp() {
       "grok-companion — drive the Grok CLI from Claude Code / Codex",
       "",
       "Commands:",
-      "  setup                       Check the Grok CLI is installed, signed in, and what it can generate",
+      "  setup                       Check the Grok CLI is installed, signed in, what it can generate, and xAI's current models",
       "  image   <prompt>            Generate image(s) with image_gen",
-      "  edit    <prompt> --image P  Edit an existing image with image_edit",
+      `  edit    <prompt> --image P  Edit an image, or combine up to ${EDIT_IMAGE_LIMIT} (${OLDER_EDIT_IMAGE_LIMIT} on older models), with image_edit`,
       "  video   <prompt>            Generate a video (image_gen, then image_to_video)",
-      "  animate <prompt> --image P  Animate a still with image_to_video",
+      "  animate <prompt> --image P  Animate a still with image_to_video (6 or 10 s), or reference_to_video (other lengths)",
       "  ref-video <prompt> inputs   Video from reference images, pinned frames and voices (reference_to_video)",
       "  ask     <prompt>            Delegate a general task to Grok",
       "  status                      List recent jobs of every kind in this workspace",
@@ -592,9 +654,8 @@ function commandHelp() {
       "",
       "Common options:",
       "  --out DIR        Output directory (default: grok-media/)",
-      `  --aspect RATIO   image, video: ${IMAGE_GEN_ASPECTS.join(", ")}`,
-      `                   edit, with 2+ images only: ${IMAGE_EDIT_ASPECTS.join(", ")}`,
-      "                   (animate keeps the source image's shape)",
+      `  --aspect RATIO   image, video, and edit with 2+ images: ${IMAGE_ASPECTS.join(", ")}`,
+      "                   (21:9 and 5:2 on Image 2.0 only; animate keeps the source image's shape)",
       "  --count N        image, edit: number of results (1-8)",
       "  --name SLUG      Filename stem",
       "  --model M        Grok model id",
@@ -605,12 +666,12 @@ function commandHelp() {
       "  --verbatim=false Let Grok rewrite the prompt instead of passing it through",
       "",
       "Image model (image, edit, and video's opening frame):",
-      `  --image-model M  ${IMAGE_MODEL_CHOICES.join(", ")} (default ${DEFAULT_IMAGE_MODEL_CHOICE}, i.e. ${DEFAULT_IMAGE_MODEL};`,
-      `                   ${SERVER_IMAGE_MODEL} passes no override, so xAI's current default applies)`,
+      `  --image-model M  ${IMAGE_MODEL_CHOICES.join(", ")}, or a Grok image model id (default ${DEFAULT_IMAGE_MODEL_CHOICE}, i.e.`,
+      `                   ${DEFAULT_IMAGE_MODEL}; ${SERVER_IMAGE_MODEL} passes no override, so xAI's current default applies)`,
       "",
       "Video options (animate, video, ref-video):",
-      `  --duration SECS  ${IMAGE_TO_VIDEO_DURATIONS.join(" or ")} (default ${DEFAULT_VIDEO_DURATION});`,
-      `                   ref-video: ${REFERENCE_VIDEO_DURATION.min}-${REFERENCE_VIDEO_DURATION.max} (default ${DEFAULT_VIDEO_DURATION})`,
+      `  --duration SECS  video: ${IMAGE_TO_VIDEO_DURATIONS.join(" or ")} (default ${DEFAULT_VIDEO_DURATION});`,
+      `                   animate, ref-video: ${REFERENCE_VIDEO_DURATION.min}-${REFERENCE_VIDEO_DURATION.max} (default ${DEFAULT_VIDEO_DURATION})`,
       `  --resolution R   ${VIDEO_RESOLUTIONS.join(" or ")} (default ${DEFAULT_VIDEO_RESOLUTION}; the CLI offers nothing higher)`,
       `  --draft          A cheap ${DRAFT_VIDEO_RESOLUTION} try-out; ${DEFAULT_VIDEO_DURATION} s unless --duration is given,`,
       "                   and not combinable with --resolution",
@@ -717,6 +778,17 @@ async function main() {
       } catch (error) {
         fail(String(error?.message ?? error));
       }
+      // Large photos go to Grok as prepared copies, which live only for the run.
+      const workDir = path.join(resolveStateDir(cwd), "refs", `${process.pid}-${Date.now()}`);
+      const prepare = async () => {
+        const { images: sent, prepared, notes } = await prepareEditReferences(images, { workDir });
+        return {
+          promptExtras: { images: sent },
+          notes,
+          meta: prepared.length > 0 ? { preparedReferences: prepared.map((each) => ({ ...each, source: path.basename(each.source) })) } : {},
+          cleanup: () => fs.rmSync(workDir, { recursive: true, force: true })
+        };
+      };
       await runMediaCommand({
         command: "edit",
         options,
@@ -725,7 +797,7 @@ async function main() {
         promptBuilder: buildEditPrompt,
         title: "Edited",
         defaultOutDir: "grok-media",
-        extra: { maxTurns: 6, defaultTimeoutSeconds: 600, promptExtras: { images } }
+        extra: { maxTurns: 6, defaultTimeoutSeconds: 600, promptExtras: { images }, prepare }
       });
       return;
     }
@@ -771,7 +843,8 @@ async function main() {
           maxTurns: 5,
           defaultTimeoutSeconds: 1200,
           promptExtras: { image },
-          requiredOutputTypes: ["ImageToVideo", "ReferenceToVideo", "VideoGen"]
+          requiredOutputTypes: ["ImageToVideo", "ReferenceToVideo", "VideoGen"],
+          resolveInputs: (spec) => (spec.videoTool === "reference_to_video" ? stillAsFirstFrame(image, rawImage) : {})
         }
       });
       return;

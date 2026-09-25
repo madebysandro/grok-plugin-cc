@@ -52,6 +52,22 @@ const DURATION_RULES = Object.freeze({
   }
 });
 
+/**
+ * The parameters each media tool takes on Grok CLI 1.0.41. Its image tools
+ * send `n: 1`, `resolution: "1k"` and no `quality`, whatever the Imagine API
+ * allows, so a `resolution`, `quality` or `n` appearing here would be an
+ * update worth offering; a parameter going away means an option the plugin
+ * passes may now be ignored. `reference_to_video` is only watched for new
+ * parameters: its older schema, without the pinned frames, has its own check.
+ */
+const KNOWN_TOOL_PARAMETERS = Object.freeze({
+  image_gen: ["prompt", "aspect_ratio"],
+  image_edit: ["prompt", "image", "aspect_ratio"],
+  image_to_video: ["prompt", "image", "duration", "resolution_name"],
+  reference_to_video: ["prompt", "images", "first_frame", "last_frame", "keyframes", "voices", "aspect_ratio", "duration", "resolution_name"]
+});
+const WATCHED_FOR_NEW_ONLY = new Set(["reference_to_video"]);
+
 /** Every check `/grok:setup` runs, from the sessions Grok left on disk. */
 export function checkCompatibility() {
   const sessions = readRecentSessions();
@@ -59,6 +75,7 @@ export function checkCompatibility() {
     mediaTools: checkMediaTools(sessions),
     harvest: checkHarvest(sessions),
     limits: checkAdvertisedLimits(sessions),
+    toolOptions: checkToolOptions(sessions),
     referenceToVideo: checkReferenceSchema(sessions)
   };
 }
@@ -248,6 +265,39 @@ function checkAdvertisedLimits(sessions) {
       if (unexpected.length > 0) {
         warnings.push(`${name} now mentions ${unexpected.join(", ")} s; the plugin allows ${durations.text} s (lib/media-spec.mjs).`);
       }
+    }
+  }
+
+  const status = checked.length === 0 ? "not-verified" : warnings.length > 0 ? "warn" : "ok";
+  return { status, checked, warnings };
+}
+
+/**
+ * Warn when a media tool starts or stops taking a parameter (see
+ * `KNOWN_TOOL_PARAMETERS`) — a sign a CLI update changed what it can do.
+ *
+ * Returns `{ status, checked, warnings }`; `checked` lists the tools found.
+ */
+function checkToolOptions(sessions) {
+  const warnings = [];
+  const checked = [];
+
+  for (const [name, known] of Object.entries(KNOWN_TOOL_PARAMETERS)) {
+    const tool = newestDefinition(sessions, name);
+    if (!tool) {
+      continue;
+    }
+    checked.push(name);
+    const taken = Object.keys(tool.parameters?.properties ?? {});
+    const added = taken.filter((parameter) => !known.includes(parameter));
+    if (added.length > 0) {
+      warnings.push(
+        `${name} now takes ${added.map((parameter) => `\`${parameter}\``).join(", ")}, which the plugin does not offer yet (lib/media-spec.mjs).`
+      );
+    }
+    const dropped = WATCHED_FOR_NEW_ONLY.has(name) ? [] : known.filter((parameter) => !taken.includes(parameter));
+    if (dropped.length > 0) {
+      warnings.push(`${name} no longer takes ${dropped.map((parameter) => `\`${parameter}\``).join(", ")}; the plugin may be passing an option it ignores.`);
     }
   }
 

@@ -26,6 +26,32 @@ test("image prompt asks for variation when several are requested", () => {
   assert.match(built, /Vary composition/);
 });
 
+test("several images or edits are asked for in one step, so the Grok CLI runs them in parallel", () => {
+  assert.match(buildImagePrompt({ prompt: PROMPT, count: 3 }), /Issue all 3 `image_gen` calls together, in a single step: they run in parallel\./);
+  assert.match(
+    buildEditPrompt({ prompt: "make it blue", images: ["/tmp/a.png"], count: 2 }),
+    /Issue all 2 `image_edit` calls together, in a single step: they run in parallel\./
+  );
+  assert.doesNotMatch(buildImagePrompt({ prompt: PROMPT, count: 1 }), /in parallel/);
+});
+
+test("animate prompt through reference_to_video pins the still as the first frame and passes its aspect", () => {
+  const built = buildAnimatePrompt({
+    prompt: "slow push-in",
+    image: "/tmp/a.png",
+    tool: "reference_to_video",
+    aspect: "9:16",
+    duration: 8,
+    resolution: "480p"
+  });
+
+  assert.match(built, /Use the `reference_to_video` tool to produce one video\./);
+  assert.match(built, /"first_frame": "\/tmp\/a\.png"/);
+  assert.match(built, /"aspect_ratio": "9:16"/);
+  assert.match(built, /"duration": 8/);
+  assert.doesNotMatch(built, /image_to_video/);
+});
+
 test("verbatim can be turned off to let Grok rewrite", () => {
   const built = buildImagePrompt({ prompt: PROMPT, count: 1, verbatim: false });
 

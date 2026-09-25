@@ -44,7 +44,7 @@ Order the prompt roughly: **subject → action or pose → setting → style →
 - One coherent scene per prompt. Two competing focal points produce a muddle.
 - Two to five sentences is the sweet spot. Past that, later details start getting dropped.
 
-Match the aspect ratio to the use: `16:9` banner or video frame, `9:16` phone or story, `1:1` avatar or icon, `3:2`/`2:3` print-ish. `image_gen` takes only 1:1, 16:9, 9:16, 3:2, 2:3 and auto.
+Match the aspect ratio to the use: `16:9` video frame, `9:16` phone or story, `1:1` avatar or icon, `4:3`/`3:4` slide or portrait, `3:2`/`2:3` print-ish, `2:1` or `5:2` banner or header, `21:9` cinematic widescreen, `19.5:9`/`20:9` (and their tall forms) a phone screen. Image 2.0 takes all of these and auto; the older models all but `21:9` and `5:2`.
 
 ## An example
 
@@ -77,7 +77,7 @@ The prompt refers to the inputs by tag:
 - **For `/grok:cutout`:** ask for the subject "on a flat pure green (#00FF00) background, evenly lit, no shadow on the background". For a green subject, use magenta (#FF00FF) and pass `--key #FF00FF`.
 - **For `/grok:split`:** ask for the items "on a flat pure green (#00FF00) background, evenly spaced with clear gaps, none touching the edges", and say how many. A character turnaround: "front, side and back views of the same character, side by side, full body, same scale".
 - **For `/grok:overlay`:** leave the part of the frame where the text goes (top, centre or bottom) plain enough to read text over.
-- **For another format:** generate at the nearest ratio `image_gen` offers and use `/grok:reframe` — `pad` keeps everything on a blurred copy of the picture.
+- **For a format the list lacks** (5:4, 4:5, 3:1…): generate at the nearest ratio and use `/grok:reframe` — `pad` keeps everything on a blurred copy of the picture.
 
 ## Consistency across a series
 
@@ -93,7 +93,7 @@ To keep one character, product, or location across several images: **generate on
 
 Re-running `/grok:image` for a recurring subject is the single most common way a series ends up inconsistent.
 
-`image_edit` shrinks each reference to about 768 px / 400 KB first, so small text, a logo or a fine pattern in the reference can come back blurred or redrawn. Keep what must stay exact out of the edit and add it afterwards with `/grok:overlay`; warn the user when an edit hinges on such detail.
+The Grok CLI shrinks a reference over 400 KB to 768 px before `image_edit` sees it; the plugin sends such a photo as a 1536 px copy instead, when Python with Pillow is there. Even so, small text, a logo or a fine pattern in a reference can come back redrawn. Keep what must stay exact out of the edit and add it afterwards with `/grok:overlay`; warn the user when an edit hinges on such detail. One edit takes up to 5 references on Image 2.0 — say in the instruction which image each thing comes from ("the apple from the first image").
 
 For video, pass the same base image to `/grok:ref-video` as `--image` (or `--first-frame`) in every clip. Keep a project's base images in `grok-media/library/<name>/` (the canonical image, the turnaround, `traits.md` with what must not drift) and start every piece from there.
 

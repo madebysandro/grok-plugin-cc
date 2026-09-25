@@ -31,8 +31,8 @@ ffprobe -v error -select_streams a:0 -show_entries stream=codec_name -of csv=p=0
 What to expect:
 
 - 720p is a real 1280×720 for a 16:9 still.
-- The 480p tier (`--draft`) is **not** 480 lines: `animate`/`video` gave 736×400 from a 1280×720 still, `ref-video` 848×480 for 16:9. Report the size ffprobe gives, not "480p".
-- Duration: 6 or 10 s for `animate`/`video`, what was asked (1–15 s) for `ref-video`; the file is a few hundredths of a second longer.
+- The 480p tier (`--draft`) is **not** 480 lines: `animate`/`video` gave 736×400 from a 1280×720 still (at 6 s and at 8 s), `ref-video` with reference images 848×480 for 16:9. Report the size ffprobe gives, not "480p".
+- Duration: 6 or 10 s for `video`, what was asked (1–15 s) for `animate` and `ref-video`; the file is a few hundredths of a second longer.
 - An audio stream, unless the clip was muted.
 
 To see what a clip shows, extract frames from the main stream and `Read` them:
@@ -50,7 +50,7 @@ ffmpeg -v error -y -ss 3 -i clip.mp4 -map 0:v:0 -frames:v 1 middle.png
 - **Exit 0 — completed.** Files listed, each with its size; the summary line ends with the job id (`--json` gives `jobId`).
 - **Exit 2 — partial or failed.** *Partial*: something was produced but not what was asked — most often a `/grok:video` whose still generated and whose animation failed; the still is kept and labelled intermediate. Never present it as the finished video. *Failed*: no usable output; the reason is stated. Relay it rather than paraphrasing.
 
-Notes may follow a result: a brand font that did not load (`overlay`), or — once per output folder in a workspace — that the folder sits inside a git repository that does not ignore it. Relay them; the plugin never edits `.gitignore` itself.
+Notes may follow a result: a brand font that did not load (`overlay`); a large photo an `edit` sent as a prepared copy, or could not prepare; an `animate` clip made at the closest aspect ratio `reference_to_video` has to the still's; `--image-model standard` expanding the prompt; or — once per output folder in a workspace — that the folder sits inside a git repository that does not ignore it. Relay them; the plugin never edits `.gitignore` itself.
 
 ## Failure modes worth recognising
 

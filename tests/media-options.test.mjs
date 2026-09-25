@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { assertRejectedBeforeGrok, generate, lastGeneration, lastPromptLines, sourceImage } from "./companion-assertions.mjs";
+import { assertRejectedBeforeGrok, generate, lastGeneration, lastPromptLines, sizedImage, sourceImage } from "./companion-assertions.mjs";
 import { createSandbox } from "./companion-harness.mjs";
+import { OLD_REFERENCE_TO_VIDEO, addSession } from "./grok-fixtures.mjs";
 
 /** The prompt line that sets `key`, e.g. `resolution_name: 720p (...)`, or undefined. */
 function promptSetting(sandbox, key) {
@@ -93,12 +94,101 @@ test("--resolution 1080p is refused, explaining the CLI stops at 720p", async (t
   }
 });
 
-test("a duration other than 6 or 10 s is refused for animate and video", async (t) => {
+test("video takes 6 or 10 s, and points to animate for other lengths", async (t) => {
   const sandbox = createSandbox(t);
 
-  for (const args of [["animate", "drift", "--image", sourceImage(sandbox)], ["video", "a kite at dusk"]]) {
-    await assertRejectedBeforeGrok(sandbox, [...args, "--duration", "3"], /--duration 3 is not accepted by image_to_video\. Use 6 or 10 seconds/);
+  await assertRejectedBeforeGrok(
+    sandbox,
+    ["video", "a kite at dusk", "--duration", "3"],
+    /--duration 3 is not accepted by image_to_video\. Use 6 or 10 seconds\. For another length, make the still with image and animate it with animate --duration\./
+  );
+});
+
+test("animate refuses a length outside 1–15 s", async (t) => {
+  const sandbox = createSandbox(t);
+  const still = sizedImage(sandbox, 1280, 720);
+
+  for (const seconds of ["0", "16"]) {
+    await assertRejectedBeforeGrok(
+      sandbox,
+      ["animate", "drift", "--image", still, "--duration", seconds],
+      new RegExp(`--duration ${seconds} is outside animate's range of 1–15 seconds\\.`)
+    );
   }
+});
+
+/** The JSON arguments a reference_to_video prompt passes, from the newest run. */
+function referenceArguments(sandbox) {
+  const lines = lastPromptLines(sandbox);
+  const start = lines.indexOf("{");
+  const end = lines.indexOf("}", start);
+  return JSON.parse(lines.slice(start, end + 1).join("\n"));
+}
+
+/** The `--tools` the newest Grok run was given. */
+function offeredTools(sandbox) {
+  const { args } = sandbox.grokCalls().at(-1);
+  return args[args.indexOf("--tools") + 1];
+}
+
+test("animate makes other lengths with reference_to_video, the still pinned as the first frame", async (t) => {
+  const sandbox = createSandbox(t);
+  const still = sizedImage(sandbox, 1280, 720);
+
+  const { stdout } = await generate(sandbox, ["animate", "the kite drifts", "--image", still, "--duration", "8"], [{ tool: "reference_to_video" }]);
+
+  assert.equal(offeredTools(sandbox), "reference_to_video");
+  assert.deepEqual(referenceArguments(sandbox), { aspect_ratio: "16:9", duration: 8, resolution_name: "720p", first_frame: still });
+  assert.ok(lastPromptLines(sandbox).includes("the kite drifts"), "the motion prompt goes through as written");
+  assert.deepEqual(pick(lastGeneration(sandbox), ["duration", "resolution", "aspect"]), { duration: 8, resolution: "720p", aspect: "16:9" });
+  assert.ok(!("videoTool" in lastGeneration(sandbox)), "the manifest records settings, not how the plugin chose the tool");
+  assert.doesNotMatch(stdout, /Note:/);
+});
+
+test("animate keeps image_to_video for 6 and 10 s", async (t) => {
+  const sandbox = createSandbox(t);
+
+  for (const seconds of ["6", "10"]) {
+    await generate(sandbox, ["animate", "drift", "--image", sourceImage(sandbox), "--duration", seconds], [{ tool: "image_to_video" }]);
+    assert.equal(offeredTools(sandbox), "image_to_video");
+  }
+});
+
+test("animate through reference_to_video picks the closest aspect ratio, and says so when the still has none of them", async (t) => {
+  const sandbox = createSandbox(t);
+  const phone = sizedImage(sandbox, 1170, 2532, "phone.png");
+
+  const { stdout } = await generate(sandbox, ["animate", "drift", "--image", phone, "--duration", "4", "--draft"], [{ tool: "reference_to_video" }]);
+
+  assert.deepEqual(pick(referenceArguments(sandbox), ["aspect_ratio", "duration", "resolution_name"]), {
+    aspect_ratio: "9:16",
+    duration: 4,
+    resolution_name: "480p"
+  });
+  assert.match(stdout, /Note: reference_to_video, which makes clips of this length, offers no 1170×2532 shape; the clip was asked for at 9:16/);
+});
+
+test("animate refuses other lengths when the installed Grok offers the older reference_to_video, which pins no frame", async (t) => {
+  const sandbox = createSandbox(t);
+  addSession(sandbox, { tools: ["reference_to_video"], parameters: { reference_to_video: OLD_REFERENCE_TO_VIDEO } });
+  const still = sizedImage(sandbox, 1280, 720);
+
+  await assertRejectedBeforeGrok(
+    sandbox,
+    ["animate", "drift", "--image", still, "--duration", "8"],
+    /This Grok CLI offers the older reference_to_video, which cannot pin a first frame, so animate only makes 6 or 10 s clips\./
+  );
+  await generate(sandbox, ["animate", "drift", "--image", still, "--duration", "10"], [{ tool: "image_to_video" }]);
+});
+
+test("animate refuses, for a length made with reference_to_video, a still whose size it cannot read", async (t) => {
+  const sandbox = createSandbox(t);
+
+  await assertRejectedBeforeGrok(
+    sandbox,
+    ["animate", "drift", "--image", sourceImage(sandbox), "--duration", "8"],
+    /Could not read the size of .*in\.png\. A clip of this length is made with reference_to_video/
+  );
 });
 
 test("--aspect on animate is refused, explaining the video keeps the image's shape", async (t) => {
@@ -111,16 +201,43 @@ test("--aspect on animate is refused, explaining the video keeps the image's sha
   );
 });
 
-test("an aspect ratio image_gen does not take is refused for image and video", async (t) => {
+test("image and video take every aspect ratio Image 2.0 does, 21:9 and 5:2 included", async (t) => {
+  const sandbox = createSandbox(t);
+
+  for (const aspect of ["21:9", "5:2", "4:3", "9:19.5"]) {
+    await generate(sandbox, ["image", "a red kite", "--aspect", aspect], [{ tool: "image_gen" }]);
+    assert.equal(promptSetting(sandbox, "aspect_ratio"), `aspect_ratio: ${aspect}`);
+  }
+  await generate(sandbox, ["video", "a kite at dusk", "--aspect", "21:9"], VIDEO_CALLS);
+  assert.match(promptSetting(sandbox, "aspect_ratio"), /^aspect_ratio: 21:9 \(for `image_gen`/);
+});
+
+test("an aspect ratio no Grok image model takes is refused for image and video", async (t) => {
   const sandbox = createSandbox(t);
 
   for (const args of [["image", "a red kite"], ["video", "a kite at dusk"]]) {
     await assertRejectedBeforeGrok(
       sandbox,
-      [...args, "--aspect", "4:3"],
-      /--aspect 4:3 is not accepted by image_gen.*Use one of: 1:1, 16:9, 9:16, 3:2, 2:3, auto\./
+      [...args, "--aspect", "5:4"],
+      /--aspect 5:4 is not accepted by image_gen.*Use one of: 1:1, 16:9, 9:16, 4:3, 3:4, 3:2, 2:3, 2:1, 1:2, 19\.5:9, 9:19\.5, 20:9, 9:20, 21:9, 5:2, auto\./
     );
   }
+});
+
+test("21:9 and 5:2 are refused on the models older than Image 2.0", async (t) => {
+  const sandbox = createSandbox(t);
+
+  await assertRejectedBeforeGrok(
+    sandbox,
+    ["image", "a red kite", "--aspect", "21:9", "--image-model", "standard"],
+    /--aspect 21:9 is not accepted by image_gen on grok-imagine-image\. Use one of: .*9:20, auto\./
+  );
+  await assertRejectedBeforeGrok(
+    sandbox,
+    ["image", "a red kite", "--aspect", "5:2", "--image-model", "server"],
+    /--aspect 5:2 is not accepted by image_gen on xAI's default model\./
+  );
+  await generate(sandbox, ["image", "a red kite", "--aspect", "4:3", "--image-model", "standard"], [{ tool: "image_gen" }]);
 });
 
 test("edit --aspect with a single image is refused: only multi-image edits take one", async (t) => {
@@ -140,10 +257,27 @@ test("edit --aspect with several images checks image_edit's list", async (t) => 
   await assertRejectedBeforeGrok(
     sandbox,
     ["edit", "merge them", "--image", image, "--image", image, "--aspect", "5:4"],
-    /--aspect 5:4 is not accepted by image_edit\. Use one of: 1:1, 16:9, 9:16, 4:3, 3:4, 3:2, 2:3, 2:1, 1:2, 19\.5:9, 9:19\.5, 20:9, 9:20, auto\./
+    /--aspect 5:4 is not accepted by image_edit\. Use one of: 1:1, 16:9, 9:16, 4:3, 3:4, 3:2, 2:3, 2:1, 1:2, 19\.5:9, 9:19\.5, 20:9, 9:20, 21:9, 5:2, auto\./
   );
-  await generate(sandbox, ["edit", "merge them", "--image", image, "--image", image, "--aspect", "4:3"], [{ tool: "image_edit" }]);
-  assert.equal(promptSetting(sandbox, "aspect_ratio"), "aspect_ratio: 4:3");
+  for (const aspect of ["4:3", "21:9"]) {
+    await generate(sandbox, ["edit", "merge them", "--image", image, "--image", image, "--aspect", aspect], [{ tool: "image_edit" }]);
+    assert.equal(promptSetting(sandbox, "aspect_ratio"), `aspect_ratio: ${aspect}`);
+  }
+});
+
+test("edit combines up to 5 images on Image 2.0, and up to 3 on the older models", async (t) => {
+  const sandbox = createSandbox(t);
+  const images = (count) => Array.from({ length: count }, (_, index) => ["--image", sourceImage(sandbox, `in-${index}.png`)]).flat();
+
+  await generate(sandbox, ["edit", "put them on one table", ...images(5)], [{ tool: "image_edit" }]);
+  await assertRejectedBeforeGrok(sandbox, ["edit", "put them on one table", ...images(6)], /image_edit takes at most 5 source images; got 6\./);
+
+  await generate(sandbox, ["edit", "put them on one table", ...images(3), "--image-model", "standard"], [{ tool: "image_edit" }]);
+  await assertRejectedBeforeGrok(
+    sandbox,
+    ["edit", "put them on one table", ...images(4), "--image-model", "standard"],
+    /image_edit on grok-imagine-image takes at most 3 source images \(5 with Image 2\.0, the default\); got 4\./
+  );
 });
 
 test("--draft=false on an image run is not a draft request", async (t) => {

@@ -2,14 +2,20 @@
  * Per-workspace job bookkeeping, so `/grok:status` and `/grok:result` can
  * report on runs launched as background tasks in an earlier turn.
  *
- * State lives outside the repository: under `CLAUDE_PLUGIN_DATA` when the host
- * provides it, otherwise a temp directory keyed by workspace.
+ * State lives outside the repository, in the plugin's own data folder
+ * (`resolveDataDir`), otherwise a temp directory keyed by workspace.
  */
 
 import { createHash, randomUUID } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+/** The plugin's name: Claude Code names its data folder `<plugin>-<marketplace>`. */
+const PLUGIN_NAME = "grok";
+/** Points the plugin's data somewhere else. */
+export const DATA_DIR_ENV = "GROK_PLUGIN_DATA";
 
 const STATE_VERSION = 1;
 const STATE_FILE = "state.json";
@@ -47,11 +53,49 @@ export function resolveStateDir(cwd) {
     "workspace";
   const hash = createHash("sha256").update(canonical).digest("hex").slice(0, 16);
 
-  const base = process.env.CLAUDE_PLUGIN_DATA
-    ? path.join(process.env.CLAUDE_PLUGIN_DATA, "state")
-    : path.join(os.tmpdir(), "grok-companion");
+  const dataDir = resolveDataDir();
+  const base = dataDir ? path.join(dataDir, "state") : path.join(os.tmpdir(), "grok-companion");
 
   return path.join(base, `${slug}-${hash}`);
+}
+
+/**
+ * The folder the plugin keeps its data in, or null for a temp directory:
+ *
+ *  1. `GROK_PLUGIN_DATA`, when set.
+ *  2. `CLAUDE_PLUGIN_DATA`, when it is this plugin's own. Another plugin can
+ *     export its own into every command of a session — the Codex plugin's
+ *     SessionStart hook does — and its `state/` has this plugin's layout, so
+ *     sharing it would put both plugins' jobs in one `state.json`, and this
+ *     plugin rewriting that file would drop the other's settings. A data
+ *     folder named for another plugin is ignored.
+ *  3. The data folder Claude Code keeps for this plugin, found from where it
+ *     is installed: `<config>/plugins/cache/<marketplace>/<plugin>/<version>/`
+ *     goes with `<config>/plugins/data/<plugin>-<marketplace>`.
+ */
+export function resolveDataDir({ env = process.env, moduleFile = fileURLToPath(import.meta.url) } = {}) {
+  if (env[DATA_DIR_ENV]) {
+    return env[DATA_DIR_ENV];
+  }
+  const host = env.CLAUDE_PLUGIN_DATA;
+  if (host && path.basename(host).startsWith(`${PLUGIN_NAME}-`)) {
+    return host;
+  }
+  return installedDataDir(moduleFile);
+}
+
+/** `<config>/plugins/data/grok-<marketplace>` for a copy installed in Claude Code's plugin cache, else null. */
+function installedDataDir(moduleFile) {
+  const parts = moduleFile.split(path.sep);
+  const cache = parts.lastIndexOf("cache");
+  if (cache < 1 || parts[cache - 1] !== "plugins" || parts.length < cache + 4) {
+    return null;
+  }
+  const [marketplace, plugin] = parts.slice(cache + 1, cache + 3);
+  if (plugin !== PLUGIN_NAME || !marketplace) {
+    return null;
+  }
+  return path.join(parts.slice(0, cache).join(path.sep) || path.sep, "data", `${plugin}-${marketplace}`);
 }
 
 export function resolveJobsDir(cwd) {

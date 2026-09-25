@@ -1,6 +1,6 @@
 {
   "name": "grok-plugin-cc",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "private": true,
   "type": "module",
   "description": "Generate and edit images and video with the Grok CLI, from inside Claude Code or Codex.",

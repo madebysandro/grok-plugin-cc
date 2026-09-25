@@ -29,6 +29,27 @@ Runs 6–9 used the companion at `b1d932c` in a scratch workspace, all with `--d
 
 Run 10 used the companion at `e0a6342` (2.0.0) in a scratch workspace. Its output fed `cutout` and `split` (`split --expect 3` found the three mugs) for the README gallery; those local tools spend no quota.
 
+## Calibration round (2026-09-25)
+
+A second round, approved by the user, to calibrate the plugin to what Image 2.0 and the Grok CLI can do (see "Grok CLI source and xAI docs" below). Same ceiling of 12 generations; it used **6**. The companion was `9294ee7`'s code, run from its working tree in a scratch workspace, on Grok CLI 1.0.41.
+
+| # | Date (UTC) | Test | Command | Result | Output | Session |
+| --- | --- | --- | --- | --- | --- | --- |
+| C1 | 2026-09-25 11:17 | An aspect ratio beyond the tool's description | `image "A cinematic ultra-wide shot of a lone white lighthouse on a rocky coast at golden hour, …" --aspect 21:9` | ok · 22.7 s · `image_gen` received `aspect_ratio: 21:9` · the picture matches the brief | 1568×672 JPEG (21:9 exactly), 384,762 B | `ebea8f2a-dac3-4ff1-8766-22cc0d693c13` |
+| C2 | 2026-09-25 11:18 | Five references in one edit | `edit "Combine all five images into one photo of a bright café counter: the red apple from the first image …" --image` × 5 (`ref-apple-1.jpg`, `mug-sheet-cutout.jpg`, `hero.jpg`, `variations-1.jpg`, `edit-text-pt.jpg`) `--aspect 16:9` | ok · 21.0 s · `image_edit` received the 5 images in order · all five subjects appear; the small word COFFEE of the framed logo came back as "COFFÉ", "TORREFAÇÃO" right | 1280×720 JPEG, 204,354 B | `8afbacb6-ff7b-48a6-83bf-d89d43ac419b` |
+| C3 | 2026-09-25 11:18 | A reference over 400 KB, prepared by the plugin | `edit "Make it night: the room is dark, the monitor glows blue and a warm desk lamp lights the mug. Keep everything else the same." --image big-hero.png` (`hero.jpg` upscaled to 2560×1440, 4,839,097 B PNG) | ok · 19.1 s · `image_edit` received the prepared copy, a 1536×864 JPEG of 222,268 B, which the CLI passes on unchanged — and the service took it · the edit kept the scene and changed only the light | 1280×720 JPEG, 251,071 B | `5f70a1b1-28ad-4625-93c6-d05757c8e915` |
+| C4 | 2026-09-25 11:20 | `animate` at a length `image_to_video` does not take | `animate "Slow camera push-in across the desk; steam rises from the mug and the monitor light flickers softly." --image hero.jpg --duration 8 --draft` | ok · 37.7 s · only `reference_to_video` offered; it received `first_frame: hero.jpg`, `aspect_ratio: 16:9`, `duration: 8`, `resolution_name: 480p` · first frame against the still, scaled and cropped to 736×400: SSIM 0.861 | 736×400 H.264 24 fps, 8.04 s, AAC audio, 1,911,901 B | `9ce0d60a-4ef8-4fb3-860f-28469ab1fa6c` |
+| C5 | 2026-09-25 11:21 | Quality: generation (served `low` under `auto`) | `image "A macro photograph of an antique brass pocket watch lying open on a weathered oak table: … a small paper tag … that reads 'RELÓGIO 1924'. …" --aspect 1:1` | ok · 21.8 s · tag text right, accent included | 1024×1024 JPEG, 479,339 B | `89eddf96-caec-4bc3-82ef-9ed62ea37caf` |
+| C6 | 2026-09-25 11:22 | Quality: the same scene as an edit (served `medium` under `auto`) | `edit "Replace this blank gray canvas completely with a new picture. Nothing of the gray canvas remains. The picture: <C5's prompt>" --image canvas-1x1.jpg` (1024×1024, flat #808080) | ok · 23.3 s · no trace of the gray canvas; tag text right | 1024×1024 JPEG, 393,139 B | `62e29cbf-2871-428d-a7c5-4db56790876c` |
+
+What the round showed:
+
+- **Aspect ratios.** The CLI passes `aspect_ratio` through unchecked, and Image 2.0 honours ratios its tool description does not list (C1).
+- **Five references.** One `image_edit` call takes five source images on Image 2.0 (C2). Small text inside a reference can still be redrawn wrong, as before.
+- **Prepared references.** A reference of up to 400 KB in JPEG or PNG reaches the service unchanged, whatever its size in pixels; the service took 1536 px (C3). The plugin now prepares larger photos to that size instead of letting the CLI shrink them to 768 px. Whether the extra pixels improve an edit was not measured.
+- **Pinned first frame.** `reference_to_video` with only a `first_frame` makes a clip of any length that starts on the still (C4). Its 480p tier came out 736×400, like `animate`'s, not 848×480 as `ref-video` with reference images does.
+- **Quality.** Neither the logs nor the files show the quality the service chose. Measured on C5 and C6, the edit is not sharper (variance of the Laplacian 1037 against 1083; mean gradient 8.1 against 11.1), and by eye the two are on a par. One sample of each, with no seed, proves little, but nothing suggests that routing generations through an edit is worth it, so the plugin does not offer a quality option.
+
 ## Checks that generate nothing
 
 ### `grok inspect --json` with and without isolation (2026-09-24, #3)
@@ -48,3 +69,18 @@ Run in an empty directory, once with the normal environment and once with the te
 | Grok's own skills (`~/.grok/skills`, `~/.agents/skills`, bundled: 61), hook in `~/.grok/hooks` (1) and `config.toml` MCP server (1) | loaded | loaded |
 
 Result: Claude plugins still load under isolation. Their skills are switched off, but the plugins stay enabled, and the hooks and agents they provide report no compatibility status, so they appear to keep loading. No documented variable turns plugins off. Media runs also pass `--no-subagents`, so the agents cannot be spawned. The recursion guard (`GROK_PLUGIN_CC_WORKER`) covers the risk of Grok calling back into this plugin.
+
+### Grok CLI source and xAI docs (2026-09-25, calibration round)
+
+Read from the Grok CLI's source (github.com/xai-org/grok-build, synced 2026-09-23, the same as 1.0.41 for media) and xAI's public docs (docs.x.ai: `llms.txt`, `developers/release-notes.md`, `developers/models.md`, the Imagine pages, `developers/migration/imagine-image-quality-nov-2.md`). No credentials were used.
+
+| What | Imagine API (Image 2.0, Video 1.5) | Grok CLI 1.0.41 |
+| --- | --- | --- |
+| Image model | `grok-imagine-image-2.0` is xAI's current one; `grok-imagine-image-quality` is retired on 2026-11-02 (then served by 2.0 at `low`) | falls back to `grok-imagine-image-quality`; `GROK_IMAGE_GEN_MODEL_OVERRIDE` / `GROK_IMAGE_EDIT_MODEL_OVERRIDE` pick another (the plugin passes 2.0) |
+| Images per request | `n` 1–10 | `n: 1`; several calls in one step run in parallel, 8 at most by default |
+| Resolution | `1k` or `2k` | always `1k` |
+| Quality | `low`, `medium` or `auto` (Image 2.0 only); `auto` serves `low` for generation, `medium` for edits | never sent, so `auto` |
+| Aspect ratios | 1:1, 16:9, 9:16, 4:3, 3:4, 3:2, 2:3, 2:1, 1:2, 19.5:9, 9:19.5, 20:9, 9:20, 21:9, 5:2, auto (21:9 and 5:2 since August 2026, Image 2.0 only) | passed through unchecked |
+| Edit sources | up to 5 on Image 2.0 (3 before August 2026) | no limit of its own; a JPEG or PNG of up to 400 KB goes as it is, anything else is re-encoded to 768 px and 400 KB |
+| Video model | `grok-imagine-video-1.5` | fixed in the source, no override |
+| Video | text-to-video; 1080p for text- and image-to-video; image-to-video of 1–15 s; `generate_audio: false`; editing (≤ 8.7 s, 720p) and extension | `image_to_video` 6 or 10 s, `reference_to_video` 1–15 s, 480p or 720p, always with sound; no editing or extension |

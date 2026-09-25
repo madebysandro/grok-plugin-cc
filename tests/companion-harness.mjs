@@ -33,6 +33,9 @@ export function createSandbox(t) {
     workspace: path.join(root, "workspace"),
     grokHome: path.join(root, "grok-home"),
     pluginData: path.join(root, "plugin-data"),
+    // Named like another plugin's data folder, which that plugin exports into every command of a session.
+    otherPluginData: path.join(root, "data", "codex-openai-codex"),
+    tmp: path.join(root, "tmp"),
     home: path.join(root, "home"),
     control: path.join(root, "fake-grok")
   };
@@ -49,19 +52,27 @@ export function createSandbox(t) {
   );
 
   // A minimal env, built from scratch: nothing from the real Grok setup, the
-  // real plugin state or the host session (CLAUDE_PROJECT_DIR) leaks in.
+  // real plugin state or the host session (CLAUDE_PROJECT_DIR) leaks in. No
+  // test reaches the network: setup's look at xAI's model list is off unless
+  // a test points it at a local server. Another plugin's CLAUDE_PLUGIN_DATA is
+  // there, as it is in a real session, and must never be used.
   const env = {
     PATH: process.env.PATH,
     HOME: dirs.home,
+    TMPDIR: dirs.tmp,
     GROK_BIN: grokBin,
     GROK_HOME: dirs.grokHome,
-    CLAUDE_PLUGIN_DATA: dirs.pluginData
+    GROK_PLUGIN_DATA: dirs.pluginData,
+    CLAUDE_PLUGIN_DATA: dirs.otherPluginData,
+    GROK_PLUGIN_DOCS_URL: "off"
   };
 
   return {
     workspace: dirs.workspace,
     grokHome: dirs.grokHome,
     pluginData: dirs.pluginData,
+    otherPluginData: dirs.otherPluginData,
+    tmp: dirs.tmp,
     grokBin,
 
     /** Script what the fake grok does on its next runs. */
