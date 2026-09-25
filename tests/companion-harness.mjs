@@ -49,13 +49,16 @@ export function createSandbox(t) {
   );
 
   // A minimal env, built from scratch: nothing from the real Grok setup, the
-  // real plugin state or the host session (CLAUDE_PROJECT_DIR) leaks in.
+  // real plugin state or the host session (CLAUDE_PROJECT_DIR) leaks in. No
+  // test reaches the network: setup's look at xAI's model list is off unless
+  // a test points it at a local server.
   const env = {
     PATH: process.env.PATH,
     HOME: dirs.home,
     GROK_BIN: grokBin,
     GROK_HOME: dirs.grokHome,
-    CLAUDE_PLUGIN_DATA: dirs.pluginData
+    CLAUDE_PLUGIN_DATA: dirs.pluginData,
+    GROK_PLUGIN_DOCS_URL: "off"
   };
 
   return {

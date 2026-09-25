@@ -106,6 +106,39 @@ function limitsChecks({ status, checked, warnings }) {
   return [{ name, status, detail: "not verified (no session on disk offered a video tool yet)" }];
 }
 
+/** One line per warning; a warning never blocks. */
+function toolOptionsChecks({ status, checked, warnings }) {
+  const name = "Tool options";
+  if (status === "warn") {
+    return warnings.map((detail) => ({ name, status, detail }));
+  }
+  if (status === "ok") {
+    return [{ name, status, detail: `${checked.join(", ")}: the same parameters the plugin was built for` }];
+  }
+  return [{ name, status, detail: "not verified (no session on disk offered the media tools yet)" }];
+}
+
+/** xAI's current Imagine models against the plugin's (`checkLatestModels`); a warning never blocks. */
+function latestModelsChecks(models) {
+  const name = "Latest models";
+  if (!models) {
+    return [];
+  }
+  if (models.status === "warn") {
+    return models.warnings.map((detail) => ({ name, status: "warn", detail }));
+  }
+  if (models.status === "ok") {
+    return [
+      {
+        name,
+        status: "ok",
+        detail: `xAI lists ${models.image} for images (the plugin's default) and ${models.video} for video (the one the Grok CLI calls), with no retirement notice for either (docs.x.ai)`
+      }
+    ];
+  }
+  return [{ name, status: "not-verified", detail: `not verified: ${models.reason}` }];
+}
+
 function referenceSchemaCheck({ status, schema, maxImages }) {
   const name = "reference_to_video schema";
   if (status !== "ok") {
@@ -117,13 +150,13 @@ function referenceSchemaCheck({ status, schema, maxImages }) {
 
 /**
  * Build the report from what setup gathered: the binary and its version, the
- * signed-in account (`readGrokAuth`), the plan (`readGrokPlan`), and the
- * compatibility checks (`checkCompatibility`). `zdrHint` explains the Zero
- * Data Retention video block.
+ * signed-in account (`readGrokAuth`), the plan (`readGrokPlan`), the
+ * compatibility checks (`checkCompatibility`) and xAI's current models
+ * (`checkLatestModels`). `zdrHint` explains the Zero Data Retention video block.
  *
  * Returns `{ text, payload }`.
  */
-export function buildReadinessReport({ binary, version, auth, plan, compat, zdrHint }) {
+export function buildReadinessReport({ binary, version, auth, plan, compat, models = null, zdrHint }) {
   const signedIn = Boolean(binary && auth.authenticated);
   const videoBlocked = Boolean(auth.authenticated && auth.dataRetentionOptOut);
   const imageOn = switchedOn(plan, "imageGenEnabled");
@@ -143,7 +176,9 @@ export function buildReadinessReport({ binary, version, auth, plan, compat, zdrH
     mediaToolsCheck(compat.mediaTools),
     harvestCheck(compat.harvest),
     ...limitsChecks(compat.limits),
-    referenceSchemaCheck(compat.referenceToVideo)
+    ...toolOptionsChecks(compat.toolOptions),
+    referenceSchemaCheck(compat.referenceToVideo),
+    ...latestModelsChecks(models)
   ];
 
   const ready = checks.every((check) => check.status !== "fail");
@@ -155,7 +190,7 @@ export function buildReadinessReport({ binary, version, auth, plan, compat, zdrH
   lines.push("");
   if (checks.some((check) => check.status === "not-verified")) {
     lines.push(
-      "-- = not verified: setup only reads what Grok left on disk (sessions, settings cache) instead of generating anything, and nothing there could tell yet. It does not block."
+      "-- = not verified: setup only reads what Grok left on disk (sessions, settings cache) and xAI's public model list instead of generating anything, and nothing there could tell yet. It does not block."
     );
     lines.push("");
   }
@@ -193,6 +228,7 @@ export function buildReadinessReport({ binary, version, auth, plan, compat, zdrH
       videoAvailable: signedIn && !videoBlocked && videoOn !== false,
       plan,
       compat,
+      models,
       checks
     }
   };

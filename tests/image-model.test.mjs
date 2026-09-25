@@ -32,9 +32,14 @@ for (const [command, { variable, args, calls }] of Object.entries(IMAGE_COMMANDS
   });
 }
 
-test("--image-model picks a model by name", async (t) => {
+test("--image-model picks a model by name, or takes a Grok image model id as it is", async (t) => {
   const sandbox = createSandbox(t);
-  const choices = { "2.0": "grok-imagine-image-2.0", quality: "grok-imagine-image-quality", standard: "grok-imagine-image" };
+  const choices = {
+    "2.0": "grok-imagine-image-2.0",
+    standard: "grok-imagine-image",
+    // A model newer than the plugin can be used before the plugin knows its name.
+    "grok-imagine-image-3.0": "grok-imagine-image-3.0"
+  };
 
   for (const [command, { variable, args, calls }] of Object.entries(IMAGE_COMMANDS)) {
     for (const [choice, model] of Object.entries(choices)) {
@@ -69,10 +74,33 @@ test("an unknown --image-model is refused before calling grok", async (t) => {
     await assertRejectedBeforeGrok(
       sandbox,
       [...args(sandbox), "--image-model", "3.0"],
-      /--image-model 3\.0 is not a Grok image model\. Use one of: 2\.0, quality, standard, server\./
+      /--image-model 3\.0 is not a Grok image model\. Use one of: 2\.0, standard, server, or a model id such as grok-imagine-image-2\.0\./
     );
   }
   await assertRejectedBeforeGrok(sandbox, ["image", "a red kite", "--image-model="], /--image-model "" is not a Grok image model\./);
+});
+
+test("--image-model refuses grok-imagine-image-quality and its aliases, which xAI retires on 2026-11-02", async (t) => {
+  const sandbox = createSandbox(t);
+
+  for (const choice of ["quality", "grok-imagine-image-quality", "grok-imagine-image-quality-latest", "grok-imagine-image-pro"]) {
+    await assertRejectedBeforeGrok(
+      sandbox,
+      ["image", "a red kite", "--image-model", choice],
+      new RegExp(`--image-model ${choice} names a model xAI is retiring: from 2026-11-02 Image 2\\.0 at low quality serves it\\. Use 2\\.0 \\(the default\\) or standard\\.`)
+    );
+  }
+});
+
+test("--image-model standard notes that the model expands the prompt", async (t) => {
+  const sandbox = createSandbox(t);
+  const { args, calls } = IMAGE_COMMANDS.image;
+
+  const standard = await generate(sandbox, [...args(sandbox), "--image-model", "standard"], calls);
+  assert.match(standard.stdout, /Note: grok-imagine-image expands the prompt before generating, so the image does not follow it word for word\./);
+
+  const latest = await generate(sandbox, args(sandbox), calls);
+  assert.doesNotMatch(latest.stdout, /expands the prompt/);
 });
 
 test("--image-model on ask is refused: ask keeps Grok's own choice of model", async (t) => {
@@ -80,7 +108,7 @@ test("--image-model on ask is refused: ask keeps Grok's own choice of model", as
 
   await assertRejectedBeforeGrok(
     sandbox,
-    ["ask", "draw me a logo", "--image-model", "quality"],
+    ["ask", "draw me a logo", "--image-model", "standard"],
     /--image-model does not apply to ask; it is for image, edit and video\./
   );
 });

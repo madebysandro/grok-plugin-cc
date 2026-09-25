@@ -4,6 +4,7 @@ import path from "node:path";
 import test from "node:test";
 
 import { createSandbox } from "./companion-harness.mjs";
+import { LIB } from "./helpers.mjs";
 
 /** Each media command as a user would type it, and the tools it needs. */
 const MEDIA_COMMANDS = {
@@ -76,6 +77,17 @@ for (const [command, { tools }] of Object.entries(MEDIA_COMMANDS)) {
     }
   });
 }
+
+test("a run can use one of its command's alternative tools, and nothing outside them", async () => {
+  const { buildGrokInvocation } = await import(path.join(LIB, "invocation.mjs"));
+  const common = { prompt: "p", cwd: "/tmp/workspace" };
+  const toolsOf = (invocation) => invocation.args[invocation.args.indexOf("--tools") + 1];
+
+  assert.equal(toolsOf(buildGrokInvocation("animate", common)), "image_to_video");
+  assert.equal(toolsOf(buildGrokInvocation("animate", { ...common, tools: ["reference_to_video"] })), "reference_to_video");
+  assert.throws(() => buildGrokInvocation("animate", { ...common, tools: ["image_gen"] }), /animate does not use image_gen/);
+  assert.throws(() => buildGrokInvocation("image", { ...common, tools: ["reference_to_video"] }), /image does not use reference_to_video/);
+});
 
 test("media runs open a new grok session under a UUID the plugin generates", async (t) => {
   const sandbox = createSandbox(t);

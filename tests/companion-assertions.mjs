@@ -27,6 +27,23 @@ export function sourceImage(sandbox, name = "in.png") {
 }
 
 /**
+ * Write the start of a PNG of `width`×`height` into the workspace — enough
+ * for anything that reads the size from its header — and return its path.
+ */
+export function sizedImage(sandbox, width, height, name = "still.png") {
+  const header = Buffer.alloc(33);
+  Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(header, 0);
+  header.writeUInt32BE(13, 8);
+  header.write("IHDR", 12, "ascii");
+  header.writeUInt32BE(width, 16);
+  header.writeUInt32BE(height, 20);
+  header.set([8, 2, 0, 0, 0], 24); // 8-bit RGB
+  const file = path.join(sandbox.workspace, name);
+  fs.writeFileSync(file, header);
+  return file;
+}
+
+/**
  * Run the companion with grok scripted to make `calls`, checking the exit code.
  * `env` adds variables to the companion's environment, as if set in the user's shell.
  */

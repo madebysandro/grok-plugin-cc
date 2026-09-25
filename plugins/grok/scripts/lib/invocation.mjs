@@ -21,6 +21,15 @@ export const MEDIA_TOOL_ALLOWLIST = Object.freeze({
 });
 
 /**
+ * Tools a run may be given in place of its command's list (`tools` below):
+ * `animate` makes a clip of a length `image_to_video` does not take with
+ * `reference_to_video`, the still pinned as its first frame.
+ */
+export const ALTERNATIVE_MEDIA_TOOLS = Object.freeze({
+  animate: ["reference_to_video"]
+});
+
+/**
  * Tools that only slow a media run down (and cost tokens).
  *
  * `search_tool`/`use_tool` matter most: without them the agent responds to a
@@ -82,8 +91,10 @@ const ASK_WRITE_TOOLS = ["write", "search_replace", "delete_file", "edit_noteboo
  * runs open a new session under a UUID generated here, so its folder is known
  * up front. `readOnly` only applies to `ask`; `imageModel` (a model id, or
  * `SERVER_IMAGE_MODEL`) only to the image tools a media command allows.
+ * `tools` replaces a media command's allowlist with the tools this run uses,
+ * taken from that list or from its `ALTERNATIVE_MEDIA_TOOLS`.
  */
-export function buildGrokInvocation(command, { prompt, cwd, model, effort, maxTurns, readOnly, imageModel }) {
+export function buildGrokInvocation(command, { prompt, cwd, model, effort, maxTurns, readOnly, imageModel, tools: onlyTools }) {
   const args = ["-p", prompt, "--always-approve", "--output-format", "json", "--cwd", cwd];
 
   if (model) {
@@ -105,10 +116,16 @@ export function buildGrokInvocation(command, { prompt, cwd, model, effort, maxTu
     return { args, env: workerEnv, cwd };
   }
 
-  const tools = MEDIA_TOOL_ALLOWLIST[command];
-  if (!tools) {
+  const allowlist = MEDIA_TOOL_ALLOWLIST[command];
+  if (!allowlist) {
     throw new Error(`Unknown media command: ${command}`);
   }
+  const usable = [...allowlist, ...(ALTERNATIVE_MEDIA_TOOLS[command] ?? [])];
+  const outside = (onlyTools ?? []).filter((tool) => !usable.includes(tool));
+  if (outside.length > 0) {
+    throw new Error(`${command} does not use ${outside.join(", ")}`);
+  }
+  const tools = onlyTools ?? allowlist;
 
   const sessionId = randomUUID();
 

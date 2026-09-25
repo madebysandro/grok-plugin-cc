@@ -68,7 +68,7 @@ function parseExpect(value) {
 }
 
 /** `GROK_PLUGIN_PYTHON` picks the interpreter; otherwise `python3` from PATH or the usual install dirs. */
-function findPython() {
+export function findPython() {
   const override = process.env.GROK_PLUGIN_PYTHON;
   if (!override) {
     const python = findBinary("python3");

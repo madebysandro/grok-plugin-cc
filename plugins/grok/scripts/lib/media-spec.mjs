@@ -2,17 +2,83 @@
  * What the Grok CLI's media tools actually accept.
  *
  * Taken from the tool schemas Grok CLI 1.0.41 advertises (every session folder
- * holds a `tool_definitions.json`) and confirmed by live runs. Checking options
+ * holds a `tool_definitions.json`), the CLI's source (github.com/xai-org/grok-build)
+ * and xAI's Imagine documentation, and confirmed by live runs. Checking options
  * here turns a quota-spending Grok turn that ends in a validation error into an
  * instant local one.
  */
 
-export const IMAGE_GEN_ASPECTS = Object.freeze(["1:1", "16:9", "9:16", "3:2", "2:3", "auto"]);
+/**
+ * The image models `--image-model` names. Image 2.0 is xAI's current image
+ * model and the default: it renders text (accents, prices) correctly.
+ * `grok-imagine-image` (1.0) expands the prompt before generating.
+ */
+export const IMAGE_MODELS = Object.freeze({
+  "2.0": "grok-imagine-image-2.0",
+  standard: "grok-imagine-image"
+});
+export const DEFAULT_IMAGE_MODEL_CHOICE = "2.0";
+export const DEFAULT_IMAGE_MODEL = IMAGE_MODELS[DEFAULT_IMAGE_MODEL_CHOICE];
 
-/** `image_edit` only honours an aspect ratio for multi-image edits. */
-export const IMAGE_EDIT_ASPECTS = Object.freeze([
-  "1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3", "2:1", "1:2", "19.5:9", "9:19.5", "20:9", "9:20", "auto"
+/** `--image-model server`: pass no override, so xAI's current default applies. */
+export const SERVER_IMAGE_MODEL = "server";
+export const IMAGE_MODEL_CHOICES = Object.freeze([...Object.keys(IMAGE_MODELS), SERVER_IMAGE_MODEL]);
+
+/**
+ * xAI retires `grok-imagine-image-quality` on 2026-11-02, with its aliases
+ * (`-latest`, dated ids, and `grok-imagine-image-pro`, which already redirects
+ * to it): from then on Image 2.0 at low quality serves them
+ * (docs.x.ai/developers/migration/imagine-image-quality-nov-2). `quality` was
+ * this plugin's name for it.
+ */
+const RETIRED_IMAGE_MODEL_CHOICE = "quality";
+const RETIRED_IMAGE_MODEL_PREFIXES = Object.freeze(["grok-imagine-image-quality", "grok-imagine-image-pro"]);
+
+/** A model id `--image-model` passes through as it is, for a model newer than this plugin. */
+const IMAGE_MODEL_ID = /^grok-imagine-image[a-z0-9.-]*$/;
+
+/**
+ * The models older than Image 2.0, with its narrower limits below. `server`
+ * counts among them: without an override, the Grok CLI falls back to
+ * `grok-imagine-image-quality`.
+ */
+const OLDER_IMAGE_MODELS = new Set([IMAGE_MODELS.standard, SERVER_IMAGE_MODEL]);
+
+function isOlderImageModel(model) {
+  return OLDER_IMAGE_MODELS.has(model);
+}
+
+/**
+ * The aspect ratios the Imagine API documents for generating and editing
+ * images. The Grok CLI passes `aspect_ratio` through without checking it (its
+ * tool descriptions list only some), so these are the limits that count.
+ * 21:9 and 5:2 came with Image 2.0 and only it takes them.
+ */
+export const IMAGE_ASPECTS = Object.freeze([
+  "1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3", "2:1", "1:2", "19.5:9", "9:19.5", "20:9", "9:20", "21:9", "5:2", "auto"
 ]);
+const IMAGE_2_0_ONLY_ASPECTS = Object.freeze(["21:9", "5:2"]);
+export const OLDER_IMAGE_ASPECTS = Object.freeze(IMAGE_ASPECTS.filter((aspect) => !IMAGE_2_0_ONLY_ASPECTS.includes(aspect)));
+
+/** The aspect ratios `image_gen` and `image_edit` take on `model` (a model id, or `server`). */
+export function imageAspects(model) {
+  return isOlderImageModel(model) ? OLDER_IMAGE_ASPECTS : IMAGE_ASPECTS;
+}
+
+/** How many source images one `image_edit` call takes: 5 on Image 2.0, 3 on the older models. */
+export const EDIT_IMAGE_LIMIT = 5;
+export const OLDER_EDIT_IMAGE_LIMIT = 3;
+
+export function editImageLimit(model) {
+  return isOlderImageModel(model) ? OLDER_EDIT_IMAGE_LIMIT : EDIT_IMAGE_LIMIT;
+}
+
+/** A note for the result when the chosen image model will not use the prompt as it is; otherwise null. */
+export function imageModelNote(model) {
+  return model === IMAGE_MODELS.standard
+    ? `Note: ${IMAGE_MODELS.standard} expands the prompt before generating, so the image does not follow it word for word. Image 2.0 (the default) uses it as written.`
+    : null;
+}
 
 export const REFERENCE_VIDEO_ASPECTS = Object.freeze(["1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3"]);
 export const DEFAULT_REFERENCE_ASPECT = "16:9";
@@ -28,23 +94,6 @@ export const DEFAULT_VIDEO_RESOLUTION = "720p";
 
 /** `--draft`: the cheapest clip worth looking at, to try an idea before spending on it. */
 export const DRAFT_VIDEO_RESOLUTION = "480p";
-
-/**
- * `--image-model` choices. Image 2.0 is the default: it renders text (accents,
- * prices) correctly, and the server's own default, `grok-imagine-image-quality`,
- * is retired on 2026-11-02.
- */
-export const IMAGE_MODELS = Object.freeze({
-  "2.0": "grok-imagine-image-2.0",
-  quality: "grok-imagine-image-quality",
-  standard: "grok-imagine-image"
-});
-export const DEFAULT_IMAGE_MODEL_CHOICE = "2.0";
-export const DEFAULT_IMAGE_MODEL = IMAGE_MODELS[DEFAULT_IMAGE_MODEL_CHOICE];
-
-/** `--image-model server`: pass no override, so xAI's current default applies. */
-export const SERVER_IMAGE_MODEL = "server";
-export const IMAGE_MODEL_CHOICES = Object.freeze([...Object.keys(IMAGE_MODELS), SERVER_IMAGE_MODEL]);
 
 const VIDEO_COMMANDS = ["animate", "video", "ref-video"];
 
@@ -131,6 +180,11 @@ function pickAspect(value, allowed, label) {
   return aspect;
 }
 
+/**
+ * `--image-model`: a name from `IMAGE_MODEL_CHOICES`, or the id of a Grok
+ * image model, passed through so a model newer than this plugin can be used
+ * before the plugin knows it. Returns a model id, or `SERVER_IMAGE_MODEL`.
+ */
 function pickImageModel(value) {
   if (value === undefined || value === null) {
     return DEFAULT_IMAGE_MODEL;
@@ -139,12 +193,22 @@ function pickImageModel(value) {
   if (choice === SERVER_IMAGE_MODEL) {
     return SERVER_IMAGE_MODEL;
   }
-  if (!Object.hasOwn(IMAGE_MODELS, choice)) {
+  if (Object.hasOwn(IMAGE_MODELS, choice)) {
+    return IMAGE_MODELS[choice];
+  }
+  if (choice === RETIRED_IMAGE_MODEL_CHOICE || RETIRED_IMAGE_MODEL_PREFIXES.some((prefix) => choice.startsWith(prefix))) {
     throw new MediaOptionError(
-      `--image-model ${choice || '""'} is not a Grok image model. Use one of: ${IMAGE_MODEL_CHOICES.join(", ")}.`
+      `--image-model ${choice} names a model xAI is retiring: from 2026-11-02 Image 2.0 at low quality serves it. ` +
+        `Use ${DEFAULT_IMAGE_MODEL_CHOICE} (the default) or standard.`
     );
   }
-  return IMAGE_MODELS[choice];
+  if (IMAGE_MODEL_ID.test(choice)) {
+    return choice;
+  }
+  throw new MediaOptionError(
+    `--image-model ${choice || '""'} is not a Grok image model. Use one of: ${IMAGE_MODEL_CHOICES.join(", ")}, ` +
+      `or a model id such as ${DEFAULT_IMAGE_MODEL}.`
+  );
 }
 
 function pickResolution(value) {
@@ -176,23 +240,34 @@ function pickSeconds(value, flag) {
 /**
  * Validate and normalise one command's generation options.
  *
- * Returns `{ aspect, imageModel, duration, resolution, draft }` with only the
- * fields that command uses; throws `MediaOptionError` with a message fit to
- * show the user. `imageModel` is a model id, or `SERVER_IMAGE_MODEL`.
+ * Returns `{ aspect, imageModel, duration, resolution, draft, videoTool }` with
+ * only the fields that command uses; throws `MediaOptionError` with a message
+ * fit to show the user. `imageModel` is a model id, or `SERVER_IMAGE_MODEL`;
+ * `videoTool` (animate only) is the Grok tool that makes the clip.
  */
 export function resolveMediaSpec(command, options = {}) {
   rejectInapplicableOptions(command, options);
   switch (command) {
-    case "image":
-      return { aspect: pickAspect(options.aspect, IMAGE_GEN_ASPECTS, "image_gen"), imageModel: pickImageModel(options["image-model"]) };
+    case "image": {
+      const imageModel = pickImageModel(options["image-model"]);
+      return { aspect: pickAspect(options.aspect, imageAspects(imageModel), toolOnModel("image_gen", imageModel)), imageModel };
+    }
 
-    case "edit":
-      if (options.aspect !== undefined && asList(options.image).length < 2) {
+    case "edit": {
+      const imageModel = pickImageModel(options["image-model"]);
+      const images = asList(options.image).length;
+      if (options.aspect !== undefined && images < 2) {
         throw new MediaOptionError(
           "--aspect applies to edit only with 2 or more --image inputs; a single-image edit keeps the source image's shape."
         );
       }
-      return { aspect: pickAspect(options.aspect, IMAGE_EDIT_ASPECTS, "image_edit"), imageModel: pickImageModel(options["image-model"]) };
+      const limit = editImageLimit(imageModel);
+      if (images > limit) {
+        const newer = limit < EDIT_IMAGE_LIMIT ? ` (${EDIT_IMAGE_LIMIT} with Image 2.0, the default)` : "";
+        throw new MediaOptionError(`${toolOnModel("image_edit", imageModel)} takes at most ${limit} source images${newer}; got ${images}.`);
+      }
+      return { aspect: pickAspect(options.aspect, imageAspects(imageModel), toolOnModel("image_edit", imageModel)), imageModel };
+    }
 
     case "animate":
       if (asList(options.image).length > 1) {
@@ -203,14 +278,16 @@ export function resolveMediaSpec(command, options = {}) {
           "--aspect does not apply to animate: image_to_video keeps the source image's shape. Crop the still first."
         );
       }
-      return pickImageToVideo(options);
+      return pickAnimation(options);
 
-    case "video":
+    case "video": {
+      const imageModel = pickImageModel(options["image-model"]);
       return {
-        aspect: pickAspect(options.aspect, IMAGE_GEN_ASPECTS, "image_gen (the opening frame)"),
-        imageModel: pickImageModel(options["image-model"]),
-        ...pickImageToVideo(options)
+        aspect: pickAspect(options.aspect, imageAspects(imageModel), `${toolOnModel("image_gen", imageModel)} (the opening frame)`),
+        imageModel,
+        ...pickImageToVideo(options, " For another length, make the still with image and animate it with animate --duration.")
       };
+    }
 
     case "ref-video": {
       const duration = pickSeconds(options.duration, "--duration");
@@ -230,15 +307,57 @@ export function resolveMediaSpec(command, options = {}) {
   }
 }
 
-/** The `image_to_video` settings shared by animate and video: `{ duration, resolution, draft }`. */
-function pickImageToVideo(options) {
+/** "image_gen", or "image_gen on grok-imagine-image" for a model with narrower limits, for messages. */
+function toolOnModel(tool, model) {
+  if (!isOlderImageModel(model)) {
+    return tool;
+  }
+  return `${tool} on ${model === SERVER_IMAGE_MODEL ? "xAI's default model" : model}`;
+}
+
+/** The `image_to_video` settings of `video`: `{ duration, resolution, draft }`. `hint` ends a refused duration's message. */
+function pickImageToVideo(options, hint = "") {
   const duration = pickSeconds(options.duration, "--duration");
   if (!IMAGE_TO_VIDEO_DURATIONS.includes(duration)) {
     throw new MediaOptionError(
-      `--duration ${duration} is not accepted by image_to_video. Use ${IMAGE_TO_VIDEO_DURATIONS.join(" or ")} seconds.`
+      `--duration ${duration} is not accepted by image_to_video. Use ${IMAGE_TO_VIDEO_DURATIONS.join(" or ")} seconds.${hint}`
     );
   }
   return { duration, ...pickDraftResolution(options) };
+}
+
+/**
+ * `animate`: `image_to_video` for the lengths it takes (6 or 10 s), and
+ * `reference_to_video` with the still pinned as the first frame for the rest
+ * of 1–15 s. Returns `{ duration, resolution, draft, videoTool }`.
+ */
+function pickAnimation(options) {
+  const duration = pickSeconds(options.duration, "--duration");
+  if (IMAGE_TO_VIDEO_DURATIONS.includes(duration)) {
+    return { duration, ...pickDraftResolution(options), videoTool: "image_to_video" };
+  }
+  const { min, max } = REFERENCE_VIDEO_DURATION;
+  if (duration < min || duration > max) {
+    throw new MediaOptionError(`--duration ${duration} is outside animate's range of ${min}–${max} seconds.`);
+  }
+  return { duration, ...pickDraftResolution(options), videoTool: "reference_to_video" };
+}
+
+/**
+ * The aspect ratio of `reference_to_video` closest to a `width`×`height`
+ * still, and whether it matches the still's shape (within 1%).
+ */
+export function nearestReferenceAspect(width, height) {
+  const target = Math.log(width / height);
+  let best = null;
+  for (const aspect of REFERENCE_VIDEO_ASPECTS) {
+    const [w, h] = aspect.split(":").map(Number);
+    const distance = Math.abs(Math.log(w / h) - target);
+    if (!best || distance < best.distance) {
+      best = { aspect, distance };
+    }
+  }
+  return { aspect: best.aspect, exact: best.distance < Math.log(1.01) };
 }
 
 /** `{ resolution, draft }`: `--draft` means the draft resolution and cannot be combined with `--resolution`. */

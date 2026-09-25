@@ -30,6 +30,14 @@ function finalLine(marker = "DONE") {
   return `When every call has returned, reply with exactly: ${marker}`;
 }
 
+/**
+ * Several results: all the calls in one step, which the Grok CLI runs in
+ * parallel (up to 8 image calls per step by default) instead of one turn each.
+ */
+function parallelCallsRule(tool, count) {
+  return count > 1 ? `Issue all ${count} \`${tool}\` calls together, in a single step: they run in parallel.` : null;
+}
+
 /** Text-to-image via `image_gen`. */
 export function buildImagePrompt({ prompt, aspect, count = 1, verbatim = true }) {
   return block([
@@ -44,6 +52,7 @@ export function buildImagePrompt({ prompt, aspect, count = 1, verbatim = true })
     "",
     rulesSection([
       `Call \`image_gen\` exactly ${count} time${count === 1 ? "" : "s"}.`,
+      parallelCallsRule("image_gen", count),
       count > 1
         ? "Vary composition, angle, and lighting between calls while keeping the same subject and style."
         : null,
@@ -72,6 +81,7 @@ export function buildEditPrompt({ prompt, images, aspect, count = 1, verbatim = 
     "",
     rulesSection([
       `Call \`image_edit\` exactly ${count} time${count === 1 ? "" : "s"}.`,
+      parallelCallsRule("image_edit", count),
       "Preserve everything the instruction does not ask you to change.",
       "Do not call `image_gen`; this is an edit of the supplied source image(s)."
     ]),
@@ -115,12 +125,17 @@ export function buildVideoPrompt({ prompt, aspect, duration, resolution, verbati
 }
 
 /**
- * Image-to-video via `image_to_video`.
+ * Image-to-video via `image_to_video` — or, for a length that tool does not
+ * take, via `reference_to_video` with the still pinned as the first frame.
  *
- * No aspect ratio: the tool keeps the source image's shape and has no such
- * argument, so passing one only invites the agent to improvise.
+ * `image_to_video` gets no aspect ratio: it keeps the source image's shape and
+ * has no such argument, so passing one only invites the agent to improvise.
+ * `reference_to_video` requires one; `aspect` is then the closest to the still's.
  */
-export function buildAnimatePrompt({ prompt, image, duration, resolution, tool = "image_to_video", verbatim = true }) {
+export function buildAnimatePrompt({ prompt, image, duration, resolution, aspect = null, tool = "image_to_video", verbatim = true }) {
+  if (tool === "reference_to_video") {
+    return buildReferenceVideoPrompt({ prompt, firstFrame: image, aspect, duration, resolution, verbatim });
+  }
   return block([
     `Use the \`${tool}\` tool to animate the supplied image into one video.`,
     "",
