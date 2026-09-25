@@ -289,6 +289,9 @@ function realPath(file) {
  * Finds the newest session that has media files on disk and checks the log
  * parser recovers them. Media on disk that the parser cannot see is the
  * signature of a changed log format — exactly what a CLI update would break.
+ * "ok" when the log leads to every file, "warn" when only to some (a format
+ * change for some media, or files that got there some other way), "fail" when
+ * to none.
  *
  * Returns `{ status, dir, mediaFiles, recovered, when }`.
  */
@@ -299,12 +302,17 @@ function checkHarvest(sessions) {
       continue;
     }
     const calls = extractMediaCalls(readSessionUpdates(dir));
-    const recovered = calls.filter((call) => call.status === "completed" && call.path && onDisk.has(realPath(call.path)));
+    const recovered = new Set(
+      calls
+        .filter((call) => call.status === "completed" && call.path)
+        .map((call) => realPath(call.path))
+        .filter((file) => onDisk.has(file))
+    );
     return {
-      status: recovered.length > 0 ? "ok" : "fail",
+      status: recovered.size === onDisk.size ? "ok" : recovered.size > 0 ? "warn" : "fail",
       dir,
       mediaFiles: onDisk.size,
-      recovered: recovered.length,
+      recovered: recovered.size,
       when: fs.statSync(dir).mtime.toISOString()
     };
   }

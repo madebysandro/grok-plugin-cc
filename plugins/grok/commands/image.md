@@ -47,4 +47,4 @@ Output rules:
 - Relay the companion's output, which lists each saved file with its path.
 - Then `Read` each saved image so the user can see it inline. This is the one place re-reading is worth it: the user asked for a picture, and a list of paths is not a picture.
 - Do not claim an image "looks good" or describe its quality beyond what you can actually see.
-- If the run failed, relay the reason verbatim. Do not retry automatically — image generation costs money on every attempt.
+- If the run failed, relay the reason verbatim. Do not retry automatically — every attempt spends the plan's weekly quota.

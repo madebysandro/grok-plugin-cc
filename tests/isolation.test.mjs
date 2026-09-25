@@ -107,7 +107,7 @@ for (const command of Object.keys(MEDIA_COMMANDS)) {
 }
 
 // `ask` keeps the user's full setup, but its grok has a shell: the marker is
-// what stops it from launching media runs through the plugin again.
+// what stops it from starting Grok runs through the plugin again.
 test("ask marks grok as started by the plugin without isolating it", async (t) => {
   const sandbox = createSandbox(t);
 
@@ -130,11 +130,15 @@ for (const command of Object.keys(MEDIA_COMMANDS)) {
   });
 }
 
-test("ask still runs inside a grok the plugin started", async (t) => {
+// Grok → ask → Grok could loop as well as a media command, and every run draws on the plan's pool.
+test("ask refuses to run inside a grok the plugin started", async (t) => {
   const sandbox = createSandbox(t);
 
-  const { code } = await sandbox.run(["ask", "summarise the README"], { env: { GROK_PLUGIN_CC_WORKER: "1" } });
+  const { code, stderr } = await sandbox.run(["ask", "summarise the README"], { env: { GROK_PLUGIN_CC_WORKER: "1" } });
 
-  assert.equal(code, 0);
-  assert.equal(sandbox.grokCalls().length, 1);
+  assert.equal(code, 1);
+  assert.match(stderr, /Refusing to run `ask` inside a Grok run started by this plugin/);
+  assert.deepEqual(sandbox.grokCalls(), []);
+  const status = await sandbox.run(["status", "--json"]);
+  assert.deepEqual(JSON.parse(status.stdout).jobs, []);
 });

@@ -59,9 +59,10 @@ export const ISOLATION_ENV = Object.freeze(
 );
 
 /**
- * Set on every Grok process the plugin starts. The companion refuses media
- * commands when it sees it, so a Grok run can never loop back through the
- * plugin into another (quota-spending) Grok run.
+ * Set on every Grok process the plugin starts. The companion refuses the
+ * commands that start a Grok run (the media commands and `ask`) when it sees
+ * it, so a Grok run can never loop back through the plugin into another
+ * (quota-spending) Grok run.
  */
 export const WORKER_ENV_VAR = "GROK_PLUGIN_CC_WORKER";
 

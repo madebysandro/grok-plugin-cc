@@ -66,7 +66,8 @@ let sessionCount = 0;
  * setup trusts the newest one that can tell. `media` writes a generated image
  * with its log: in Grok's format ("grok-log"), in Grok's format but naming the
  * file through a symlinked Grok home ("grok-log-via-symlink"), or in a format
- * the plugin cannot read ("unknown-log").
+ * the plugin cannot read ("unknown-log"). "grok-log-partial" writes a second
+ * image the log never mentions, and logs the first one twice.
  */
 export function addSession(sandbox, { tools, parameters, media = null, minutesAgo = 0 }) {
   sessionCount += 1;
@@ -89,7 +90,13 @@ export function addSession(sandbox, { tools, parameters, media = null, minutesAg
       media === "unknown-log"
         ? [{ type: "tool_result", tool: "image_gen", output: { file_path: file } }]
         : mediaCallUpdates({ toolCallId: "call-1", filePath: logged });
+    if (media === "grok-log-partial") {
+      updates.push(...mediaCallUpdates({ toolCallId: "call-2", filePath: logged }));
+    }
     fs.writeFileSync(path.join(dir, "updates.jsonl"), updates.map((entry) => JSON.stringify(entry)).join("\n"));
+    if (media === "grok-log-partial") {
+      fs.writeFileSync(path.join(dir, "images", "2.jpg"), "jpeg-bytes");
+    }
   }
   const when = new Date(Date.now() - minutesAgo * 60_000);
   fs.utimesSync(dir, when, when);

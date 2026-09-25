@@ -74,7 +74,16 @@ function harvestCheck({ status, dir, mediaFiles, recovered, when }) {
     return { name, status, detail: "not verified (no session with generated media on disk yet)" };
   }
   if (status === "ok") {
-    return { name, status, detail: `the log of the newest session with media (${when}) leads to ${recovered} of its ${mediaFiles} file(s)` };
+    return { name, status, detail: `the log of the newest session with media (${when}) leads to all of its ${mediaFiles} media file(s)` };
+  }
+  if (status === "warn") {
+    return {
+      name,
+      status,
+      detail:
+        `the log of the newest session with media (${when}) leads to only ${recovered} of its ${mediaFiles} media file(s), in ${dir}. ` +
+        "The plugin would not have collected the rest; if this keeps happening, the log format may have changed for some kinds of media."
+    };
   }
   return {
     name,
