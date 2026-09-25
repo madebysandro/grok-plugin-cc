@@ -6,13 +6,13 @@ The first release of the fork [`madebysandro/grok-plugin-cc`](https://github.com
 
 ### Breaking changes
 
-- Options are checked before Grok runs. An option the command cannot honour is refused (exit 1, no job, no quota spent) instead of being dropped or sent to Grok as prompt text, so a call that used to pass a stray option now fails.
+- Options are checked before Grok runs. On the generation commands and the local tools, one of the plugin's options that the command cannot honour is refused (exit 1, no job, no quota spent) instead of being dropped or sent to Grok as prompt text, so a call that used to pass a stray option now fails. A flag the plugin does not know at all still goes into the prompt, as in 1.0.0.
 - The media commands refuse `--count` and `--timeout` values outside their range, or that are not whole numbers, instead of clamping them (`--count 20` used to become 8).
 - `animate` and `video` ask for 720p, where the tool on its own gives 480p. `--draft` gives the 480p tier.
 - `image`, `edit` and the opening frame of `video` use `grok-imagine-image-2.0` by default. `--image-model server` goes back to xAI's default.
 - The generation commands run in the foreground unless the user asks for the background.
 - `--raw`, `--keep-session` and `--read-only` did nothing in 1.0.0; the generation commands and the local tools now refuse them.
-- `ask` refuses to run inside a Grok run this plugin started, and refuses the options added in this release.
+- `ask` refuses to run inside a Grok run this plugin started, and refuses `--image` and the options added in this release.
 
 ### Isolated media runs (#3)
 
@@ -62,7 +62,7 @@ There was one run on each side, so treat the times as indicative. The drop in of
 
 - Every file input (`--image`, `--first-frame`, `--last-frame`, `--keyframe`, and a local tool's files) takes `@last` (the last file the plugin saved in this workspace, by a generation or a local tool), `job:<id>` (that job's first file) or `job:<id>#N` (its Nth file, from 1).
 - A reference that cannot be honoured fails before Grok runs and names the reason: an unknown job, a job with no files, a file number out of range, a file deleted since (it never falls back to an older one), or a video given to an image input.
-- Every run reports its job id, in the text output and as `jobId` in `--json`, including failed and partial runs.
+- Generations and local tools report their job id, in the text output and as `jobId` in `--json`. A failed or partial generation's `--json` carries it too, so a still that a partial `video` kept is reachable as `job:<id>`.
 
 ### `/grok:ref-video` (#8)
 
@@ -80,7 +80,7 @@ There was one run on each side, so treat the times as indicative. The drop in of
 - `mute <video>` drops the soundtrack without re-encoding the picture.
 - `reframe <image|video> --aspect W:H [--mode crop|pad] [--anchor center|top|bottom|left|right]` crops to the largest window, or pads on a blurred copy of the picture. Videos are re-encoded to even sizes with their sound copied. An anchor on the side that does not change, or a ratio the picture already has, is refused.
 - They read the first real video stream, so the MJPEG cover picture in every Grok clip never becomes a frame, a segment or an extra track.
-- Like every local tool, they run ffmpeg on this machine with no Grok call and no quota. All checks pass before anything is written, a failed run removes its half-written output, and each run records a job and a manifest entry naming the program that made the file (`tool: "ffmpeg"`). Exit 1 is a refusal and exit 2 a failure.
+- Like every local tool, they run ffmpeg on this machine with no Grok call and no quota. All checks pass before anything is written, a failed run removes its half-written output, and each run records a job and a manifest entry naming the program that made the file (`tool: "ffmpeg"`). Exit 1 is a refusal, a message on stderr. Exit 2 is a failure of the tool itself, which with `--json` prints `{ ok: false, command, reason }` on stdout, as a failed generation does, and records no job.
 
 ### `/grok:overlay` (#10)
 
@@ -110,16 +110,19 @@ There was one run on each side, so treat the times as indicative. The drop in of
 
 ### `ask`
 
-- `ask` accepts exactly the options it took in 1.0.0, whether or not they do anything for it, and refuses the ones this release added (`--image-model`, `--draft`, `--resolution`, `--loop`, `--text`, …) with the command they belong to. Its `--timeout` is still adjusted into 30–3600 s rather than refused.
-- It is refused under the recursion marker (see #3), and is otherwise unchanged: read-only unless `--write`, with Grok's full toolset.
+- `ask` takes the options the original plugin's `ask` took (`--write`, `--model`, `--effort`, `--timeout`, `--json` and the other shared ones), whether or not they do anything for it. It refuses every other option with the usual "does not apply" message, even written as `--flag=false`: the ones this release added (`--image-model`, `--draft`, `--resolution`, `--loop`, `--text`, …) and `--image`, which 1.0.0 parsed but `ask` never used.
+- Its `--timeout` is brought into 30–3600 s as in 1.0.0, and a malformed value means the default; the media commands refuse both. `--raw`, `--keep-session` and `--read-only` stay accepted and inert, as they do on `status`, `result`, `cancel` and `setup`.
+- It is refused under the recursion marker (see #3), and is otherwise unchanged: read-only unless `--write`, with Grok's full toolset. Its `--json` output now names the command.
 
-### Tests and packaging (#2, #14)
+### Documentation, tests and packaging (#2, #14)
 
-- Black-box tests run the companion as a process against a fake `grok` in a sandbox, with no network, no Grok CLI and nothing read from the real `~/.grok` or plugin state. Tests that need ffmpeg, Python with its libraries, or Chrome skip when those are missing. Document checks make sure every command is routed and listed, no document names a command that does not exist, and every foreground generation example has the 10-minute timeout.
+- Help and command docs: the `data:` URL form is for the image inputs of `edit`, `animate` and `ref-video` only, not for `overlay` or the other local tools; `status` lists recent jobs of every kind; `edit`'s argument hint shows `--aspect`; the docs speak of the plan's quota rather than money.
+- Black-box tests run the companion as a process against a fake `grok` in a sandbox, with no network, no Grok CLI and nothing read from the real `~/.grok` or plugin state. Tests that need ffmpeg, Python with its libraries, or Chrome skip when those are missing. Document checks make sure every command is routed and listed, no document names a command that does not exist, and every foreground generation example has the 10-minute timeout. Release checks keep one version across the manifests, their links on the fork, and a CHANGELOG section for that version.
 - The README is rewritten for the fork. Plugin, marketplace and package are at 2.0.0, with `homepage` and `repository` pointing at the fork. `docs/live-tests.md` logs the 9 live generations the round used, of the 12 it allowed.
 
 ### Known limitations
 
+- A flag the plugin does not know at all (`--seed 5`) is not refused: like any stray word, it goes to Grok as part of the prompt.
 - The argument parser only knows `--flag` and `--flag=false` for switches, and gives a value option exactly one word. So `--draft false` sends "false" to Grok as part of the prompt, `--draft=0` and `--draft=no` count as true, and `--duration 10 s` sends "s" as prompt text (`--duration 10s` works).
 - The payload format of `~/.grok/settings_cache.json` is not confirmed. `/grok:setup` may show the plan as "unknown", which only means not verified.
 - The recursion guard only recognises Grok runs the plugin started. A Grok session the user opens themselves, with this Claude plugin loaded, carries no marker, and its calls into the plugin are not refused.

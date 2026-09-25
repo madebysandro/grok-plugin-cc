@@ -12,12 +12,12 @@ Built in the shape of [`openai/codex-plugin-cc`](https://github.com/openai/codex
 
 This is [`madebysandro/grok-plugin-cc`](https://github.com/madebysandro/grok-plugin-cc), a fork of [`arielaizn/grok-plugin-cc`](https://github.com/arielaizn/grok-plugin-cc) by **Ariel Aizenshtat**, who wrote the original plugin (1.0.0). The fork keeps its MIT license and copyright notice.
 
-Version 2.0.0 is the fork's first release. It aims for the experience of the Higgsfield skills (a few generation commands, local tools that need no AI, and a router skill Claude follows) on a Grok subscription alone, through the Grok CLI, with no API key. Over 1.0.0 it adds:
+Version 2.0.0 is the fork's first release. It aims for the experience of the Higgsfield skills (a few generation commands, local tools that need no AI, and a router skill Claude follows) on a Grok subscription alone, through the Grok CLI, with no API key. Compared with 1.0.0, it adds:
 
 - `/grok:ref-video`, for `reference_to_video`: consistent people and products from reference images, exact first and last frames, keyframes, preset voices, seamless loops.
 - Seven local tools that call no Grok and spend no quota: `last-frame`, `concat`, `mute` and `reframe` (ffmpeg), `overlay` (headless Chrome), `cutout` and `split` (Python).
 - Image 2.0 (`grok-imagine-image-2.0`) by default, which renders short text with accents correctly, with `--image-model` to switch.
-- Options checked before Grok runs, so a value the tool would reject costs nothing. Video asks for 720p, and `--draft` gives a cheap 480p try-out.
+- Options checked before Grok runs, so a value the tool would reject, or an option the command cannot use, costs nothing. Video asks for 720p, and `--draft` gives a cheap 480p try-out.
 - Isolated media runs: each command offers Grok only the tool it needs and leaves out your Claude and Cursor setup. That cut one image's tokens by more than half, and a recursion guard keeps Grok from calling back into the plugin.
 - `@last` and `job:<id>[#N]` as inputs, to chain one result into the next command.
 - Zero-cost compatibility checks in `/grok:setup`, which read the sessions Grok left on disk and never start a run.
@@ -39,12 +39,12 @@ Every change is in the [CHANGELOG](plugins/grok/CHANGELOG.md). The design notes 
 | `/grok:last-frame` | Save a clip's last frame as a PNG, to start the next clip from it | ffmpeg |
 | `/grok:concat` | Join clips end to end | ffmpeg |
 | `/grok:mute` | Drop a clip's soundtrack | ffmpeg |
-| `/grok:reframe` | Crop, or pad on a blurred copy, an image or a video to another aspect ratio | ffmpeg |
+| `/grok:reframe` | Change an image's or a video's aspect ratio, by cropping or by padding on a blurred copy | ffmpeg |
 | `/grok:overlay` | Exact text over an image, set in HTML at the image's size, optionally from a `brand.json` | Chrome |
 | `/grok:cutout` | Clear a green-screen background to transparency | Python |
 | `/grok:split` | Split a sheet (turnaround, product grid, icon set) into one transparent PNG per item | Python |
-| `/grok:setup` | Check the CLI is installed and signed in, the plan, and what it can generate, at no cost | local |
-| `/grok:status` | List this workspace's jobs | local |
+| `/grok:setup` | Check that the CLI is installed and signed in, and show the plan and what it can generate, at no cost | local |
+| `/grok:status` | List this workspace's recent jobs, of every kind | local |
 | `/grok:result` | Show a job's files and notes | local |
 | `/grok:cancel` | Cancel a running job | local |
 
@@ -93,7 +93,7 @@ codex plugin add grok
 
 Files land in `grok-media/` by default (`--out` to change it). They are named from the prompt, the input file or `--name`, numbered, and never overwritten. A `grok-manifest.json` records, for each file, the prompt actually sent, the tool that made it, and the aspect ratio, duration, resolution, draft flag, image model and cost reported for the run.
 
-Every command's output names its job. Any file input takes `@last` (the last file the plugin saved in this workspace, by a generation or a local tool), `job:<id>` (that job's first file) or `job:<id>#N`. A `video` job holds the still and the clip, so `job:<id>#1` is the still.
+Generations and local tools name their job in their output (`jobId` with `--json`). Any file input takes `@last` (the last file the plugin saved in this workspace, by a generation or a local tool), `job:<id>` (that job's first file) or `job:<id>#N`. A `video` job holds the still and the clip, so `job:<id>#1` is the still. The image inputs of `edit`, `animate` and `ref-video` also take a `data:` URL.
 
 With the plugin installed, you can also just ask Claude, as in "use Grok to make a 9:16 clip of…". The `grok-generate` skill picks the command and runs it. It only acts when you name Grok, so a generic "make a video" is left to whichever tool you choose.
 
@@ -145,7 +145,7 @@ With the plugin installed, you can also just ask Claude, as in "use Grok to make
 | `--json` | Machine-readable output |
 | `--verbatim=false` | Let Grok rewrite your prompt instead of passing it through |
 
-`ref-video` has its own inputs (`--first-frame`, `--last-frame`, `--keyframe PATH@SECONDS`, `--voice ID`, `--loop`), and each local tool has a few options of its own. They are listed in each command's argument hint and by `node plugins/grok/scripts/grok-companion.mjs help`. A command refuses an option that does not apply to it, before anything runs.
+`ref-video` has its own inputs (`--first-frame`, `--last-frame`, `--keyframe PATH@SECONDS`, `--voice ID`, `--loop`), and each local tool has a few options of its own. They are listed in each command's argument hint and by `node plugins/grok/scripts/grok-companion.mjs help`. The generation commands and the local tools refuse one of the plugin's options that does not apply to them, before anything runs. `ask` takes the options it always took, and refuses the rest. A flag the plugin does not know at all (`--seed 5`) is not refused: it stays in the prompt text.
 
 ## Real limits
 
@@ -172,7 +172,7 @@ A short comparison with the Higgsfield skills for Claude Code, as they describe 
 | **Models** | Grok Imagine only: Image 2.0 for stills, Grok's video tools | Many: GPT Image 2.5, Nano Banana, Soul, Seedance, Kling, Veo and others |
 | **Video ceiling** | 720p; 6 or 10 s from a still, 1–15 s from references | Seedance 2.5 up to 1080p and 4–30 s; 4K with Seedance 2.0 |
 | **Consistency** | Reference images, pinned first/last frames and keyframes in `ref-video`; edits from a base image | Soul ID (a trained identity), reference-driven models |
-| **Audio** | Preset voices, only inside a `ref-video` clip | Stand-alone audio: voice, music-like audio and sound effects |
+| **Audio** | Every clip comes with generated sound; preset voices only in `ref-video`. No audio on its own | Stand-alone audio: voice, music-like audio and sound effects |
 | **Video editing** | None native. Last frame → new clip → `concat`, and `reframe`, run locally | Edit, extend and reframe workflows |
 | **Exact text** | Image 2.0 for short text, `/grok:overlay` for anything that must be exact | GPT Image 2.5 for on-image text |
 | **Beyond that** | `cutout` and `split` locally | 3D, ad and product-photo studios, marketplace cards, thumbnails, Virality Predictor |
@@ -182,7 +182,7 @@ A short comparison with the Higgsfield skills for Claude Code, as they describe 
 
 **Your prompt is passed through verbatim.** Grok's bundled `imagine` skill otherwise rewrites prompts, which quietly discards art direction you were explicit about. Pass `--verbatim=false` when you *want* it elaborated.
 
-**Options are checked before Grok runs.** An aspect ratio, duration or resolution the tool would reject, or an option the command does not take, is refused at once, with no job created and no quota spent. The message names the fix.
+**Options are checked before Grok runs.** An aspect ratio, duration or resolution the tool would reject, or one of the plugin's options the command does not take, is refused at once, with no job created and no quota spent. The message names the fix. A flag the plugin does not know at all is not an option to it, and goes to Grok as part of the prompt.
 
 **There is no text-to-video tool.** Grok CLI 1.0 exposes `image_gen`, `image_edit`, `image_to_video` and `reference_to_video`. There is no `video_gen`, despite the name appearing in the binary. `/grok:video` therefore runs two steps, generating the opening frame and then animating it, and keeps both files.
 
@@ -233,26 +233,26 @@ plugins/grok/
   skills/       grok-generate, grok-cli-runtime, grok-imagine-prompting, grok-media-results
   scripts/
     grok-companion.mjs
-    chroma.py       cutout and split (Pillow, numpy, scipy)
+    chroma.py          cutout and split (Pillow, numpy, scipy)
     lib/
-      grok.mjs        CLI discovery, running Grok headless, auth, plan and ZDR detection
-      invocation.mjs  the command line and environment of each Grok run
-      media-spec.mjs  what each media tool accepts, checked before Grok runs
-      prompts.mjs     the instruction templates sent to Grok
-      session.mjs     session-log parsing and media-call extraction
-      assets.mjs      copying assets out, naming, manifest
-      refs.mjs        @last and job:<id>[#N] inputs
-      compat.mjs      setup's zero-cost checks against Grok's sessions on disk
-      readiness.mjs   the setup report
-      local-tools.mjs the local tools, on ffmpeg.mjs, chroma.mjs and overlay.mjs
-      ffmpeg.mjs      ffmpeg and ffprobe
-      chroma.mjs      running chroma.py
-      overlay.mjs     the overlay page, from the options and brand.json
-      html-render.mjs headless Chrome, HTML to PNG
-      git-notice.mjs  the one-time note about media git would pick up
-      state.mjs       per-workspace job tracking
-      render.mjs      output formatting
-      args.mjs        argv parsing
+      grok.mjs         CLI discovery, running Grok headless, auth, plan and ZDR detection
+      invocation.mjs   the command line and environment of each Grok run
+      media-spec.mjs   what each media tool accepts, checked before Grok runs
+      prompts.mjs      the instruction templates sent to Grok
+      session.mjs      session-log parsing and media-call extraction
+      assets.mjs       copying assets out, naming, manifest
+      refs.mjs         @last and job:<id>[#N] inputs
+      compat.mjs       setup's zero-cost checks against Grok's sessions on disk
+      readiness.mjs    the setup report
+      local-tools.mjs  the local tools, on ffmpeg.mjs, chroma.mjs and overlay.mjs
+      ffmpeg.mjs       ffmpeg and ffprobe
+      chroma.mjs       running chroma.py
+      overlay.mjs      the overlay page, from the options and brand.json
+      html-render.mjs  headless Chrome, HTML to PNG
+      git-notice.mjs   the one-time note about media git would pick up
+      state.mjs        per-workspace job tracking
+      render.mjs       output formatting
+      args.mjs         argv parsing
 ```
 
 ## License
