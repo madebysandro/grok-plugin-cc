@@ -118,3 +118,40 @@ test("grok-generate only answers an explicit request for Grok", () => {
   assert.match(description, /explicitly/i, "skills/grok-generate/SKILL.md: the description must say it is only for requests that explicitly name Grok");
   assert.match(description, /not for/i, "skills/grok-generate/SKILL.md: the description must say which requests it is not for (generic ones)");
 });
+
+/** The options of its own each generation command's argument-hint must show. */
+const HINTED_OPTIONS = {
+  image: ["--aspect", "--count", "--image-model"],
+  edit: ["--image", "--aspect", "--count", "--image-model"],
+  animate: ["--image", "--duration", "--resolution", "--draft"],
+  video: ["--aspect", "--duration", "--resolution", "--draft", "--image-model"],
+  "ref-video": ["--image", "--first-frame", "--last-frame", "--keyframe", "--voice", "--loop", "--aspect", "--duration", "--resolution", "--draft"]
+};
+
+function commandText(name) {
+  return fs.readFileSync(path.join(PLUGIN_ROOT, "commands", `${name}.md`), "utf8");
+}
+
+test("each generation command's argument-hint shows the options it takes", () => {
+  for (const [command, options] of Object.entries(HINTED_OPTIONS)) {
+    const hint = frontmatter(commandText(command), `commands/${command}.md`)["argument-hint"] ?? "";
+    const missing = options.filter((option) => !new RegExp(`${option}(?![\\w-])`).test(hint));
+    assert.deepEqual(missing, [], `commands/${command}.md: the argument-hint leaves out ${missing.join(", ")}`);
+  }
+});
+
+test("no command file talks of money: a run draws on the plan's quota", () => {
+  for (const name of COMMANDS) {
+    const match = /\b(?:money|bill(?:ed|ing)?|paid|charged?)\b/i.exec(commandText(name));
+    assert.equal(match, null, `commands/${name}.md says "${match?.[0]}"; the plugin spends the subscription's weekly quota, not money`);
+  }
+});
+
+test("every command file defines @last the same way", () => {
+  const definition = "the last file the plugin saved in this workspace, by a generation or a local tool";
+  for (const name of COMMANDS) {
+    for (const [, meaning] of commandText(name).matchAll(/`@last` \(([^)]*)\)/g)) {
+      assert.ok(meaning.startsWith(definition), `commands/${name}.md defines @last as "${meaning}"; use "${definition}"`);
+    }
+  }
+});

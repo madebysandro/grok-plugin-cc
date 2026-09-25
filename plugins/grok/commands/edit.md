@@ -1,6 +1,6 @@
 ---
 description: Edit an existing image with Grok (image_edit)
-argument-hint: '<instruction> --image PATH [--image PATH2] [--out DIR] [--count N] [--image-model 2.0|quality|standard|server] [--background]'
+argument-hint: '<instruction> --image PATH [--image PATH2] [--aspect 16:9] [--out DIR] [--count N] [--image-model 2.0|quality|standard|server] [--background]'
 allowed-tools: Bash(node:*), Read, Glob
 ---
 

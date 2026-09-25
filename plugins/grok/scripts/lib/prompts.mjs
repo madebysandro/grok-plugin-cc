@@ -21,8 +21,9 @@ function block(lines) {
   return lines.filter(Boolean).join("\n");
 }
 
+/** `extra` may hold nulls for rules that do not apply; they are left out. */
 function rulesSection(extra = []) {
-  return block(["Rules:", ...[...extra, ...NO_HANDLING_RULES].map((rule) => `- ${rule}`)]);
+  return block(["Rules:", ...[...extra, ...NO_HANDLING_RULES].filter(Boolean).map((rule) => `- ${rule}`)]);
 }
 
 function finalLine(marker = "DONE") {

@@ -50,3 +50,20 @@ test("the fake grok answers --version without opening a session", (t) => {
   assert.match(stdout, /^grok \d+\.\d+\.\d+/);
   assert.equal(fs.existsSync(path.join(sandbox.grokHome, "sessions")), false);
 });
+
+test("the fake grok can run slowly, or die before it answers", (t) => {
+  const sandbox = createSandbox(t);
+  const env = { GROK_HOME: sandbox.grokHome };
+
+  sandbox.scenario({ delayMs: 300 });
+  const startedAt = Date.now();
+  const slow = spawnSync(sandbox.grokBin, ["-p", "hi", "--cwd", sandbox.workspace], { env, encoding: "utf8" });
+  assert.ok(Date.now() - startedAt >= 300, "the run should take at least delayMs");
+  assert.equal(JSON.parse(slow.stdout).text, "DONE");
+
+  sandbox.scenario({ exit: { code: 3, stderr: "boom" } });
+  const dead = spawnSync(sandbox.grokBin, ["-p", "hi", "--cwd", sandbox.workspace], { env, encoding: "utf8" });
+  assert.equal(dead.status, 3);
+  assert.equal(dead.stdout, "");
+  assert.match(dead.stderr, /boom/);
+});

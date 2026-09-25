@@ -47,6 +47,30 @@ test("image sends the prompt to grok verbatim", async (t) => {
   assert.ok(sent.includes(prompt), sent);
 });
 
+test("image sends grok exactly this prompt for a single image", async (t) => {
+  const sandbox = createSandbox(t);
+  sandbox.scenario({ calls: [{ tool: "image_gen", prompt: PROMPT }] });
+
+  await sandbox.run(["image", PROMPT, "--count", "1"]);
+
+  const [call] = sandbox.grokCalls();
+  assert.equal(
+    call.args[call.args.indexOf("-p") + 1],
+    [
+      "Use the `image_gen` tool to generate 1 image.",
+      "IMAGE PROMPT — pass this to `image_gen` exactly as written, do not rewrite, expand, or summarise it:",
+      PROMPT,
+      "Rules:",
+      "- Call `image_gen` exactly 1 time.",
+      "- Do not call any other generation tool.",
+      "- Do NOT copy, move, rename, or re-save the generated files. Leave them where the tool puts them.",
+      "- Do NOT read the generated files back, and do NOT describe how they look.",
+      "- Do NOT run shell commands and do NOT write any files.",
+      "When every call has returned, reply with exactly: DONE"
+    ].join("\n")
+  );
+});
+
 test("a tool error is explained and exits non-zero", async (t) => {
   const sandbox = createSandbox(t);
   const error = "Image generation failed with HTTP 500 Internal Server Error";

@@ -114,7 +114,19 @@ test("setup confirms the session log still leads to the media on disk", async (t
 
   const { text, report } = await setup(sandbox);
 
-  assert.match(text, /ok {4}Session log format: /);
+  assert.match(text, /ok {4}Session log format: .* leads to all of its 1 media file\(s\)/);
+  assert.equal(report.ready, true);
+});
+
+test("setup warns, without blocking, when the session log leads to only some of the media on disk", async (t) => {
+  const sandbox = createSandbox(t);
+  signIn(sandbox);
+  addSession(sandbox, { media: "grok-log-partial" });
+
+  const { text, report } = await setup(sandbox);
+
+  assert.match(text, /WARN {2}Session log format: .* leads to only 1 of its 2 media file\(s\)/);
+  assert.equal(report.compat.harvest.status, "warn");
   assert.equal(report.ready, true);
 });
 

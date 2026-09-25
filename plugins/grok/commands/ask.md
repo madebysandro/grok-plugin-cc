@@ -17,7 +17,7 @@ Core constraint:
 Argument handling:
 
 - Pass the prompt through unchanged.
-- `--effort high` is worth suggesting for genuinely hard analysis; it costs more and takes longer.
+- `--effort high` is worth suggesting for genuinely hard analysis; it uses more of the plan's quota and takes longer.
 
 Execution — foreground for a focused question:
 

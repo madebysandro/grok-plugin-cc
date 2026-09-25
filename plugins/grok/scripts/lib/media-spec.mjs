@@ -3,7 +3,7 @@
  *
  * Taken from the tool schemas Grok CLI 1.0.41 advertises (every session folder
  * holds a `tool_definitions.json`) and confirmed by live runs. Checking options
- * here turns a billed Grok turn that ends in a validation error into an
+ * here turns a quota-spending Grok turn that ends in a validation error into an
  * instant local one.
  */
 
@@ -51,8 +51,10 @@ const VIDEO_COMMANDS = ["animate", "video", "ref-video"];
 /**
  * The commands each option means something for. Any other generation command
  * refuses it rather than silently dropping it, so the user never thinks it
- * applied; the entries naming `ask` or a local tool only say, in that message,
- * where the option belongs (those commands check their own options).
+ * applied. `ask` refuses it too unless the original plugin's `ask` took it
+ * (`ASK_OPTIONS` in the companion), and the local tools refuse whatever is not
+ * on their own lists; the entries naming `ask` or a local tool are here for the
+ * message, which says where the option belongs.
  * `--image-model` needs a Grok run that makes an image.
  */
 const OPTION_COMMANDS = Object.freeze({
@@ -85,21 +87,20 @@ const OPTION_COMMANDS = Object.freeze({
   bg: ["split"]
 });
 
-function notApplicable(option, command) {
+/** Why `--<option>` is refused on `command`, naming the commands it is for. */
+export function optionNotApplicable(option, command) {
   const commands = OPTION_COMMANDS[option];
+  if (!commands) {
+    return `--${option} does not apply to ${command}.`;
+  }
   const list = commands.length === 1 ? commands[0] : `${commands.slice(0, -1).join(", ")} and ${commands.at(-1)}`;
   return `--${option} does not apply to ${command}; it is for ${list}.`;
-}
-
-/** Why `--image-model` is refused on `command`, for the commands that make no image. */
-export function imageModelNotApplicable(command) {
-  return notApplicable("image-model", command);
 }
 
 function rejectInapplicableOptions(command, options) {
   for (const [option, commands] of Object.entries(OPTION_COMMANDS)) {
     if (!commands.includes(command) && options[option] !== undefined && options[option] !== false) {
-      throw new MediaOptionError(notApplicable(option, command));
+      throw new MediaOptionError(optionNotApplicable(option, command));
     }
   }
 }
