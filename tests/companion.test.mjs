@@ -68,3 +68,18 @@ test("a run keeps job state in CLAUDE_PLUGIN_DATA, outside the workspace", async
   assert.deepEqual(fs.readdirSync(sandbox.workspace), ["grok-media"]);
   assert.equal(fs.readdirSync(path.join(sandbox.pluginData, "state")).length, 1);
 });
+
+// Slash commands decide to run in the background and pass their $ARGUMENTS
+// through as they are, so the flag reaches the companion too.
+test("--background never becomes part of the prompt sent to Grok", async (t) => {
+  const sandbox = createSandbox(t);
+  sandbox.scenario({ calls: [{ tool: "image_gen" }] });
+
+  const { code, stdout, stderr } = await sandbox.run(["image", PROMPT, "--background"]);
+
+  assert.equal(code, 0, stderr || stdout);
+  const [call] = sandbox.grokCalls();
+  const sent = call.args[call.args.indexOf("-p") + 1];
+  assert.ok(sent.includes(PROMPT));
+  assert.doesNotMatch(sent, /--background/);
+});

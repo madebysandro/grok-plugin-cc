@@ -14,6 +14,7 @@ import path from "node:path";
 const STATE_VERSION = 1;
 const STATE_FILE = "state.json";
 const JOBS_DIR = "jobs";
+const NOTICES_DIR = "notices";
 const MAX_JOBS = 40;
 
 /** Walk up to the nearest git root so sibling subdirectories share one job list. */
@@ -129,6 +130,28 @@ export function upsertJob(cwd, patch) {
   }
 
   return saveState(cwd, state);
+}
+
+/**
+ * Record that the one-time notice `name` has been shown in this workspace.
+ * Returns false when it already had been, so the caller stays quiet.
+ *
+ * Each notice is a marker file created exclusively, so of several runs in
+ * parallel exactly one wins.
+ */
+export function claimNotice(cwd, name) {
+  const dir = path.join(resolveStateDir(cwd), NOTICES_DIR);
+  fs.mkdirSync(dir, { recursive: true });
+  const marker = path.join(dir, createHash("sha256").update(name).digest("hex").slice(0, 32));
+  try {
+    fs.writeFileSync(marker, `${name}\n${new Date().toISOString()}\n`, { flag: "wx" });
+    return true;
+  } catch (error) {
+    if (error.code === "EEXIST") {
+      return false;
+    }
+    throw error;
+  }
 }
 
 export function listJobs(cwd) {
