@@ -93,11 +93,15 @@ The plugin copies them out itself rather than asking the agent to. Asking costs 
 
 Note the bucket is keyed on the cwd Grok resolved, which may differ from the one passed in — `/tmp` versus `/private/tmp` on macOS, for instance. `resolveSessionDir` tries the encoded path, then the real path, then scans every bucket for the session id.
 
+### The plugin's own records
+
+Job records (what `/grok:status`, `/grok:result`, `@last` and `job:<id>` read), run logs and one-time notices live in the plugin's data folder, under `state/<workspace>-<hash>/`: `GROK_PLUGIN_DATA` when set, else `CLAUDE_PLUGIN_DATA` when it is this plugin's own (`…/plugins/data/grok-<marketplace>`), else the data folder Claude Code keeps for the installed plugin, else a temp directory. Another plugin's `CLAUDE_PLUGIN_DATA` is never used: the Codex plugin's SessionStart hook exports its own into every command of a session, and its `state/` has the same layout, so sharing it would mix both plugins' jobs and drop its settings. Records written there before 3.0.0 stay where they are; the history starts afresh in the right folder.
+
 ## What comes back
 
 - Images: JPEG at about 1K.
 - Clips: H.264 at 24 fps **with an AAC soundtrack, always**, plus an MJPEG cover picture as a second video stream (`attached_pic`). Tools that read a clip must use the first real video stream (`v:0`), not "any video stream" — the plugin's local tools pick streams by index for this reason.
-- 720p gave a real 1280×720 for a 16:9 still. The 480p tier is not 480 lines: `image_to_video` gave 736×400 from a 1280×720 still, `reference_to_video` 848×480 for `aspect_ratio: 16:9` whatever the references' shape. Older 480p clips of square stills on the test machine were 544×544; what decides the size is not known.
+- 720p gave a real 1280×720 for a 16:9 still. The 480p tier is not 480 lines: `image_to_video` gave 736×400 from a 1280×720 still, and so did `reference_to_video` with only that still as `first_frame`; with reference images it gave 848×480 for `aspect_ratio: 16:9` whatever their shape. Older 480p clips of square stills on the test machine were 544×544; what decides the size is not known.
 
 ## Harvesting assets from `updates.jsonl`
 

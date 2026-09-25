@@ -1,11 +1,18 @@
 # Changelog
 
-## Unreleased
+## 3.0.0
+
+Calibrates the plugin to Image 2.0 and to what the Grok CLI can actually ask of it, and keeps the plugin's records out of other plugins' data. Measured on Grok CLI 1.0.41.
 
 ### Breaking changes
 
 - `--image-model quality` is refused, as are `grok-imagine-image-quality`, its aliases and `grok-imagine-image-pro`: xAI retires that model on 2026-11-02 and serves Image 2.0 at low quality in its place. Use `2.0` (the default) or `standard`.
 - `edit` refuses a sixth `--image` on Image 2.0, and a fourth on the older models, instead of letting the service reject it.
+- Job records move to the plugin's own data folder (see Fixes), so `/grok:status`, `@last` and `job:<id>` start with an empty history after the update. Earlier records are left where they were.
+
+### Fixes
+
+- **The plugin no longer writes into another plugin's data.** The Codex plugin's SessionStart hook exports its `CLAUDE_PLUGIN_DATA` into every command of a Claude Code session, and this plugin kept its job records under whatever that variable said. Both plugins lay their state out the same way (`state/<workspace>-<hash>/state.json`), so in a workspace used with both, their jobs landed in one file, and each rewrite by this plugin dropped the Codex plugin's per-workspace settings. The data folder is now `GROK_PLUGIN_DATA` when set, else `CLAUDE_PLUGIN_DATA` only when it is this plugin's own (`…/plugins/data/grok-<marketplace>`), else the data folder Claude Code keeps for the installed plugin, worked out from where it is installed, else a temp directory. The tests now run with another plugin's `CLAUDE_PLUGIN_DATA` in the environment and a private `TMPDIR`.
 
 ### Calibrated to Image 2.0 and Imagine's current limits
 
