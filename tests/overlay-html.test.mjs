@@ -5,7 +5,7 @@ import test from "node:test";
 
 import { LIB, cleanup, makeTempDir } from "./helpers.mjs";
 
-const { buildOverlayHtml, loadBrand } = await import(path.join(LIB, "overlay.mjs"));
+const { buildOverlayHtml, loadBrand, requestedFonts } = await import(path.join(LIB, "overlay.mjs"));
 
 const BASE = { imageUrl: "file:///tmp/base.png", text: "Title", position: "bottom", style: "clean" };
 
@@ -73,6 +73,7 @@ test("a brand's colours, Google fonts and logo are used", (t) => {
   const html = buildOverlayHtml({ ...BASE, style: "bold", sub: "sub", brand });
 
   assert.match(html, /\.block \{[^}]*background: #C0392B;/);
+  assert.ok(buildOverlayHtml({ ...BASE, brand: loadBrand(brandKit(t, { colors: { text: "rebeccapurple", primary: "hsl(10 80% 40%)" } })) }).includes("color: rebeccapurple;"));
   assert.match(html, /\.title \{[^}]*color: #FFFFFF;/);
   assert.match(html, /\.sub \{[^}]*color: #F1C40F;/);
   assert.match(html, /\.title \{[^}]*font-family: "Playfair Display", /);
@@ -101,9 +102,31 @@ test("without a brand the text is white on a shadow, in the system's sans-serif"
   assert.ok(!html.includes("fonts.googleapis.com"));
 });
 
+test("the body font is only asked for when there is a subtitle to set in it", (t) => {
+  const brand = loadBrand(brandKit(t, { fonts: { heading: "Playfair Display", body: "Inter" } }));
+
+  const withoutSub = buildOverlayHtml({ ...BASE, brand });
+  const withSub = buildOverlayHtml({ ...BASE, brand, sub: "extra" });
+
+  assert.ok(!withoutSub.includes("family=Inter"), "an unused body font must not be requested");
+  assert.ok(withSub.includes("family=Inter"));
+  assert.deepEqual(requestedFonts(brand, { sub: null }).map((font) => font.label), ["Playfair Display"]);
+  assert.deepEqual(requestedFonts(brand, { sub: "extra" }).map((font) => font.label), ["Playfair Display", "Inter"]);
+});
+
+test("long words wrap instead of running off the picture, and the page itself is transparent", () => {
+  const html = buildOverlayHtml(BASE);
+
+  assert.match(html, /\.title \{[^}]*overflow-wrap: anywhere;/);
+  assert.match(html, /\.sub \{[^}]*overflow-wrap: anywhere;/);
+  assert.match(html, /html, body \{[^}]*background: transparent;/);
+});
+
 test("a brand that could inject CSS or points at missing files is refused", (t) => {
   const refusals = [
     [{ colors: { primary: "red; } body { display: none" } }, /colors\.primary "red; \} body \{ display: none" is not a colour/],
+    [{ colors: { primary: "blu" } }, /colors\.primary "blu" is not a colour/],
+    [{ colors: { text: null } }, /colors\.text null is not a colour/],
     [{ fonts: { heading: "Inter'); } *{x:y" } }, /fonts\.heading .* is neither a Google Fonts name nor a font file/],
     [{ fonts: { body: "fonts/missing.woff2" } }, /fonts\.body: .*missing\.woff2 not found/],
     [{ logo: "nope.png" }, /logo: .*nope\.png not found/],

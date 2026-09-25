@@ -42,11 +42,11 @@ async function jobCount(sandbox) {
   return JSON.parse(stdout).jobs.length;
 }
 
-/** A refused run must fail locally: exit 1, a clear reason, no Grok run, no job. */
-export async function assertRejectedBeforeGrok(sandbox, args, pattern) {
+/** A refused run must fail locally: exit 1, a clear reason, no Grok run, no job. `env` as for `generate`. */
+export async function assertRejectedBeforeGrok(sandbox, args, pattern, { env } = {}) {
   const callsBefore = sandbox.grokCalls().length;
   const jobsBefore = await jobCount(sandbox);
-  const { code, stdout, stderr } = await sandbox.run(args);
+  const { code, stdout, stderr } = await sandbox.run(args, { env });
   assert.equal(code, 1, stderr || stdout);
   assert.match(stderr, pattern);
   assert.equal(sandbox.grokCalls().length, callsBefore, "grok must not run for a refused run");

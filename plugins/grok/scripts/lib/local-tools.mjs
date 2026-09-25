@@ -10,9 +10,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
 
-import { parseCount } from "./args.mjs";
 import { resolveOutDir, slugify, uniquePath, writeManifest } from "./assets.mjs";
 import {
   MediaToolError,
@@ -26,8 +24,7 @@ import {
   reframeMedia,
   stripAudio
 } from "./ffmpeg.mjs";
-import { renderPage, requireChrome } from "./html-render.mjs";
-import { BrandError, OVERLAY_POSITIONS, OVERLAY_STYLES, buildOverlayHtml, loadBrand, requestedFonts } from "./overlay.mjs";
+import { OVERLAY_POSITIONS, OVERLAY_STYLES, prepareOverlay, renderOverlay } from "./overlay.mjs";
 import { mediaKindOf, resolveLocalInput } from "./refs.mjs";
 import { generateJobId, upsertJob } from "./state.mjs";
 
@@ -62,6 +59,18 @@ function pickChoice(value, choices, flag, fallback) {
     throw new MediaToolError(`${flag} ${value} is not an option. Use one of: ${choices.join(", ")}.`);
   }
   return choice;
+}
+
+/** A render's time limit: whole seconds from 1 to 600, 60 unless given. */
+function pickTimeoutSeconds(value) {
+  if (value === undefined) {
+    return 60;
+  }
+  const seconds = Number(String(value).trim());
+  if (!/^\d+$/.test(String(value).trim()) || seconds < 1 || seconds > 600) {
+    throw new MediaToolError(`--timeout ${value} is not a number of seconds from 1 to 600.`);
+  }
+  return seconds;
 }
 
 async function probeAll(files) {
@@ -158,7 +167,7 @@ export const LOCAL_TOOLS = Object.freeze({
     engine: "chrome",
     usage:
       'overlay --image <image> --text "…" [--sub "…"] [--brand brand.json] [--position top|center|bottom] ' +
-      "[--style clean|bold|glass] [--out DIR] [--name SLUG]",
+      "[--style clean|bold|glass] [--timeout SECS] [--out DIR] [--name SLUG]",
     inputs: { accept: ["image"], min: 1, max: 1, option: "image" },
     options: ["image", "text", "sub", "brand", "position", "style", "timeout"],
     prepare: async ([input], options, { cwd }) => {
@@ -166,36 +175,17 @@ export const LOCAL_TOOLS = Object.freeze({
       if (!text.trim()) {
         throw new MediaToolError(`overlay needs --text. Usage: /grok:${LOCAL_TOOLS.overlay.usage}`);
       }
-      const sub = typeof options.sub === "string" && options.sub.trim() ? options.sub : null;
-      const position = pickChoice(options.position, OVERLAY_POSITIONS, "--position", "bottom");
-      const style = pickChoice(options.style, OVERLAY_STYLES, "--style", "clean");
-      let brand = null;
-      if (options.brand !== undefined) {
-        try {
-          brand = loadBrand(path.resolve(cwd, String(options.brand)));
-        } catch (error) {
-          throw error instanceof BrandError ? new MediaToolError(error.message) : error;
-        }
-      }
-      requireChrome();
-      const html = buildOverlayHtml({ imageUrl: pathToFileURL(input).href, text, sub, position, style, brand });
-      const timeoutMs = parseCount(options.timeout, { fallback: 60, min: 1, max: 600 }) * 1000;
-      return { stem: `${stemOf(input)}-overlay`, extension: ".png", work: { html, brand, timeoutMs, text, sub, position, style } };
+      const settings = {
+        text,
+        sub: typeof options.sub === "string" && options.sub.trim() ? options.sub : null,
+        position: pickChoice(options.position, OVERLAY_POSITIONS, "--position", "bottom"),
+        style: pickChoice(options.style, OVERLAY_STYLES, "--style", "clean"),
+        timeoutMs: pickTimeoutSeconds(options.timeout) * 1000
+      };
+      const brandFile = options.brand === undefined ? null : path.resolve(cwd, String(options.brand));
+      return { stem: `${stemOf(input)}-overlay`, extension: ".png", work: prepareOverlay(input, settings, { brandFile }) };
     },
-    run: async (inputs, output, { html, brand, timeoutMs, text, sub, position, style }) => {
-      const fonts = requestedFonts(brand);
-      const { width, height, missingFonts } = await renderPage({
-        html,
-        sizeFrom: "img.base",
-        output,
-        fontFamilies: fonts.map((font) => font.family),
-        timeoutMs
-      });
-      const notes = fonts
-        .filter((font) => missingFonts.includes(font.family))
-        .map((font) => `Note: the font "${font.label}" did not load (offline, not a Google Fonts family, or not a usable font file), so a fallback font was used.`);
-      return { text, sub, position, style, brand: brand?.name ?? null, width, height, notes };
-    }
+    run: async (inputs, output, work) => renderOverlay(work, output)
   },
 
   mute: {
@@ -227,7 +217,8 @@ function refuseForeignOptions(command, tool, options) {
 }
 
 /**
- * Run one local tool over `positionals` (its input files) and record the result.
+ * Run one local tool over its input files (the positionals, or the option the
+ * tool names) and record the result.
  * Returns `{ jobId, outDir, assets, elapsedMs, notes }`; throws `MediaToolError`.
  */
 export async function runLocalTool(command, { options, positionals, cwd }) {

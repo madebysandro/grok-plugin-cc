@@ -9,6 +9,15 @@ import { assertRejectedBeforeGrok, lastGeneration } from "./companion-assertions
 import { createSandbox } from "./companion-harness.mjs";
 
 const CHROME = process.env.CHROME_PATH || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+
+/**
+ * The companion's environment is built from scratch by the harness, so every
+ * overlay run here names its Chrome explicitly: the real one only in render
+ * tests (which skip when it is missing), and a path that does not exist
+ * everywhere else — a check that failed to refuse must never start a browser.
+ */
+const RENDER_ENV = { CHROME_PATH: CHROME };
+const NO_CHROME_ENV = { CHROME_PATH: "/nonexistent/chrome-for-tests" };
 const HAS_CHROME = fs.existsSync(CHROME);
 const HAS_FFMPEG = ["ffmpeg", "ffprobe"].every((tool) => spawnSync(tool, ["-version"]).status === 0);
 const SYSTEM_FONT = "/System/Library/Fonts/Supplemental/Courier New.ttf";
@@ -58,8 +67,9 @@ function writeBrand(sandbox, brand, files = {}) {
   return "brand/brand.json";
 }
 
-async function runOverlay(sandbox, args, { env } = {}) {
-  const result = await sandbox.run(["overlay", ...args], { env });
+/** A render: overlay with the real Chrome, which must succeed and never run grok. */
+async function runOverlay(sandbox, args) {
+  const result = await sandbox.run(["overlay", ...args], { env: RENDER_ENV });
   assert.equal(result.code, 0, result.stderr || result.stdout);
   assert.deepEqual(sandbox.grokCalls(), [], "overlay must never run grok");
   return result;
@@ -96,6 +106,33 @@ test("a brand's colours and embedded font are what gets drawn", { skip: needsChr
   assert.ok(red > 200 && green < 60 && blue < 60, `expected the red band, got rgb(${red}, ${green}, ${blue})`);
   const generation = lastGeneration(sandbox);
   assert.deepEqual([generation.command, generation.brand, generation.style, generation.assets[0].tool], ["overlay", "Test", "bold", "chrome"]);
+});
+
+test("text too long for the picture is refused rather than cut off", needsChrome, async (t) => {
+  const sandbox = createSandbox(t);
+  makeBase(sandbox.workspace, "small.png", "200x120");
+
+  const { code, stderr } = await sandbox.run(
+    ["overlay", "--image", "small.png", "--text", "A headline far too long to fit on so small a picture ".repeat(6)],
+    { env: RENDER_ENV }
+  );
+
+  assert.equal(code, 1, stderr);
+  assert.match(stderr, /The text does not fit on the 200x120 image, so it would be cut off\./);
+  assert.deepEqual(fs.readdirSync(path.join(sandbox.workspace, "grok-media")), []);
+});
+
+test("a picture with transparency keeps it", needsChrome, async (t) => {
+  const sandbox = createSandbox(t);
+  const base = path.join(sandbox.workspace, "cutout.png");
+  ffmpeg(["-f", "lavfi", "-i", "color=c=red@0.0:s=200x200,format=rgba", "-frames:v", "1", base]);
+
+  await runOverlay(sandbox, ["--image", "cutout.png", "--text", "Hi", "--position", "top"]);
+
+  const output = path.join(sandbox.workspace, "grok-media", "cutout-overlay.png");
+  const corner = spawnSync("ffmpeg", ["-v", "error", "-i", output, "-vf", "crop=1:1:0:199", "-f", "rawvideo", "-pix_fmt", "rgba", "-"]);
+  assert.equal(corner.status, 0, String(corner.stderr));
+  assert.equal(corner.stdout[3], 0, "a transparent corner must stay transparent");
 });
 
 test("a brand font that does not load is reported, not silently swapped", needsChrome, async (t) => {
@@ -145,9 +182,41 @@ test("overlay refuses bad input before Chrome starts", needsFfmpeg, async (t) =>
     [["--image", "base.png", "--text", "Hi", "--aspect", "1:1"], /--aspect does not apply to overlay\./]
   ];
   for (const [args, pattern] of refusals) {
-    await assertRejectedBeforeGrok(sandbox, ["overlay", ...args], pattern);
+    await assertRejectedBeforeGrok(sandbox, ["overlay", ...args], pattern, { env: NO_CHROME_ENV });
   }
   assert.ok(!fs.existsSync(path.join(sandbox.workspace, "grok-media")));
+});
+
+test("the Grok commands refuse overlay's and the local tools' options instead of dropping them", async (t) => {
+  const sandbox = createSandbox(t);
+
+  const refusals = [
+    [["image", "a poster", "--style", "bold"], /--style does not apply to image; it is for overlay\./],
+    [["video", "a kite", "--text", "SALE"], /--text does not apply to video; it is for overlay\./],
+    [["image", "a poster", "--brand", "brand.json"], /--brand does not apply to image; it is for overlay\./],
+    [["image", "a poster", "--position", "top"], /--position does not apply to image; it is for overlay\./],
+    [["image", "a poster", "--sub", "x"], /--sub does not apply to image; it is for overlay\./],
+    [["image", "a poster", "--mode", "pad"], /--mode does not apply to image; it is for reframe\./],
+    [["video", "a kite", "--anchor", "top"], /--anchor does not apply to video; it is for reframe\./],
+    [["image", "a poster", "--reencode"], /--reencode does not apply to image; it is for concat\./]
+  ];
+  for (const [args, pattern] of refusals) {
+    await assertRejectedBeforeGrok(sandbox, args, pattern);
+  }
+});
+
+test("overlay's --timeout must be a whole number of seconds from 1 to 600", needsFfmpeg, async (t) => {
+  const sandbox = createSandbox(t);
+  makeBase(sandbox.workspace);
+
+  for (const value of ["abc", "0", "9999"]) {
+    await assertRejectedBeforeGrok(
+      sandbox,
+      ["overlay", "--image", "base.png", "--text", "Hi", "--timeout", value],
+      new RegExp(`--timeout ${value} is not a number of seconds from 1 to 600\\.`),
+      { env: NO_CHROME_ENV }
+    );
+  }
 });
 
 test("without a usable Chrome, overlay says how to point at one", async (t) => {

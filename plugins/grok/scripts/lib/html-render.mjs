@@ -5,7 +5,8 @@
  * Chrome is driven over the DevTools protocol on `--remote-debugging-pipe`
  * (file descriptors 3 and 4: no port, no dependency), with a throwaway profile
  * — never the user's. Whatever happens, Chrome and its helper processes are
- * killed and the profile removed before this returns.
+ * killed and the profile removed before this returns, and also if the
+ * companion itself is interrupted mid-render.
  */
 
 import { spawn } from "node:child_process";
@@ -55,19 +56,6 @@ function isExecutable(file) {
   }
 }
 
-/** Chrome's binary, or a `MediaToolError` saying how to point at one. */
-export function requireChrome() {
-  const chrome = findChrome();
-  if (!chrome) {
-    throw new MediaToolError(
-      process.env.CHROME_PATH
-        ? `CHROME_PATH is set to ${process.env.CHROME_PATH}, which is not an executable file.`
-        : "Chrome not found. Install Google Chrome, or set CHROME_PATH to a Chrome or Chromium binary."
-    );
-  }
-  return chrome;
-}
-
 /** Chrome's binary: `CHROME_PATH` when set (and nothing else then), else the macOS app, else PATH. */
 export function findChrome() {
   if (process.env.CHROME_PATH) {
@@ -86,23 +74,55 @@ export function findChrome() {
   return null;
 }
 
+/** Chrome's binary, or a `MediaToolError` saying how to point at one. */
+export function requireChrome() {
+  const chrome = findChrome();
+  if (!chrome) {
+    throw new MediaToolError(
+      process.env.CHROME_PATH
+        ? `CHROME_PATH is set to ${process.env.CHROME_PATH}, which is not an executable file.`
+        : "Chrome not found. Install Google Chrome, or set CHROME_PATH to a Chrome or Chromium binary."
+    );
+  }
+  return chrome;
+}
+
 /** One DevTools connection over Chrome's pipe: NUL-terminated JSON messages each way. */
 class DevToolsPipe {
   constructor(input, output) {
     this.input = input;
     this.nextId = 1;
     this.pending = new Map();
-    this.listeners = new Set();
+    this.waits = new Set();
     this.closedWith = null;
-    let buffer = "";
-    output.on("data", (chunk) => {
-      buffer += chunk.toString("utf8");
-      for (let end = buffer.indexOf("\0"); end !== -1; end = buffer.indexOf("\0")) {
-        const message = JSON.parse(buffer.slice(0, end));
-        buffer = buffer.slice(end + 1);
-        this.dispatch(message);
+    this.chunks = [];
+
+    // A write after Chrome died raises EPIPE on the stream; the exit handler reports it.
+    input.on("error", () => {});
+    output.on("error", () => {});
+    output.on("data", (chunk) => this.receive(chunk));
+  }
+
+  /** Split the byte stream on NUL; decode whole messages only, so a character never straddles two chunks. */
+  receive(chunk) {
+    let start = 0;
+    for (let end = chunk.indexOf(0); end !== -1; end = chunk.indexOf(0, start)) {
+      this.chunks.push(chunk.subarray(start, end));
+      const text = Buffer.concat(this.chunks).toString("utf8");
+      this.chunks = [];
+      start = end + 1;
+      let message;
+      try {
+        message = JSON.parse(text);
+      } catch {
+        this.close(new MediaToolError("Chrome sent a DevTools message that is not JSON.", 2));
+        return;
       }
-    });
+      this.dispatch(message);
+    }
+    if (start < chunk.length) {
+      this.chunks.push(chunk.subarray(start));
+    }
   }
 
   dispatch(message) {
@@ -116,8 +136,11 @@ class DevToolsPipe {
       }
       return;
     }
-    for (const listener of this.listeners) {
-      listener(message);
+    for (const wait of this.waits) {
+      if (message.method === wait.method && message.sessionId === wait.sessionId) {
+        this.waits.delete(wait);
+        wait.resolve(message.params);
+      }
     }
   }
 
@@ -132,29 +155,30 @@ class DevToolsPipe {
     });
   }
 
+  /** The next `method` event for `sessionId`. Rejected, never left hanging, if Chrome goes away first. */
   waitFor(method, sessionId) {
+    if (this.closedWith) {
+      return Promise.reject(this.closedWith);
+    }
     return new Promise((resolve, reject) => {
-      const listener = (message) => {
-        if (message.method === method && message.sessionId === sessionId) {
-          this.listeners.delete(listener);
-          resolve(message.params);
-        }
-      };
-      this.listeners.add(listener);
-      this.pendingWaits = [...(this.pendingWaits ?? []), reject];
+      this.waits.add({ method, sessionId, resolve, reject });
     });
   }
 
   /** Fail everything still waiting: Chrome is gone. */
   close(error) {
+    if (this.closedWith) {
+      return;
+    }
     this.closedWith = error;
     for (const { reject } of this.pending.values()) {
       reject(error);
     }
     this.pending.clear();
-    for (const reject of this.pendingWaits ?? []) {
+    for (const { reject } of this.waits) {
       reject(error);
     }
+    this.waits.clear();
   }
 }
 
@@ -167,14 +191,34 @@ function killGroup(child) {
   }
 }
 
+function removeProfile(profile) {
+  try {
+    // Helpers may still be letting go of files just after the kill.
+    fs.rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  } catch {
+    // A leftover folder in the temp directory must not hide the render's real outcome.
+  }
+}
+
 /** Waits for the page's fonts and images, then reports its size and the fonts that loaded. */
 function readinessScript(sizeFrom) {
   return `(async () => {
     await document.fonts.ready;
     await Promise.all([...document.images].map((image) => image.decode()));
     const sized = document.querySelector(${JSON.stringify(sizeFrom)});
+    if (!sized) {
+      throw new Error(${JSON.stringify(`the page has no ${sizeFrom}`)});
+    }
     const loaded = [...document.fonts].filter((face) => face.status === "loaded").map((face) => face.family.replace(/^["']|["']$/g, ""));
     return { width: sized.naturalWidth, height: sized.naturalHeight, loaded: [...new Set(loaded)] };
+  })()`;
+}
+
+/** Whether the element matched by `selector` reaches past the viewport's edges. */
+function overflowScript(selector) {
+  return `(() => {
+    const box = document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect();
+    return box.top < -0.5 || box.left < -0.5 || box.bottom > innerHeight + 0.5 || box.right > innerWidth + 0.5;
   })()`;
 }
 
@@ -193,12 +237,15 @@ async function evaluate(devtools, sessionId, expression) {
 
 /**
  * Render `html` to `output` (PNG) at the natural size of the element matched
- * by `sizeFrom` (an image), after fonts and images load.
+ * by `sizeFrom` (an image), after fonts and images load. The page background
+ * is transparent, so a picture with an alpha channel keeps it.
  *
- * Returns `{ width, height, missingFonts }`, where `missingFonts` lists the
- * `fontFamilies` that did not load (so a fallback font was drawn instead).
+ * Returns `{ width, height, missingFonts, overflowing }`: the `fontFamilies`
+ * that did not load (so a fallback was drawn), and whether the element
+ * matched by `fitSelector` ran past the picture's edges — in which case
+ * nothing is written.
  */
-export async function renderPage({ html, sizeFrom, output, fontFamilies = [], timeoutMs = 60_000 }) {
+export async function renderPage({ html, sizeFrom, output, fontFamilies = [], fitSelector = null, timeoutMs = 60_000 }) {
   const chrome = requireChrome();
 
   const profile = fs.mkdtempSync(path.join(os.tmpdir(), "grok-render-"));
@@ -207,6 +254,16 @@ export async function renderPage({ html, sizeFrom, output, fontFamilies = [], ti
 
   let child = null;
   let timer = null;
+  const onSignal = (signal) => {
+    if (child) {
+      killGroup(child);
+    }
+    removeProfile(profile);
+    process.exit(signal === "SIGINT" ? 130 : 143);
+  };
+  process.once("SIGINT", onSignal);
+  process.once("SIGTERM", onSignal);
+
   try {
     child = spawn(chrome, [...CHROME_FLAGS, `--user-data-dir=${profile}`, "about:blank"], {
       stdio: ["ignore", "ignore", "pipe", "pipe", "pipe"],
@@ -238,7 +295,9 @@ export async function renderPage({ html, sizeFrom, output, fontFamilies = [], ti
       const { targetId } = await devtools.send("Target.createTarget", { url: "about:blank" });
       const { sessionId } = await devtools.send("Target.attachToTarget", { targetId, flatten: true });
       await devtools.send("Page.enable", {}, sessionId);
+      await devtools.send("Emulation.setDefaultBackgroundColorOverride", { color: { r: 0, g: 0, b: 0, a: 0 } }, sessionId);
       const loaded = devtools.waitFor("Page.loadEventFired", sessionId);
+      loaded.catch(() => {}); // awaited below, unless the failure that rejected it wins the race first
       await devtools.send("Page.navigate", { url: pathToFileURL(page).href }, sessionId);
       await loaded;
 
@@ -253,13 +312,17 @@ export async function renderPage({ html, sizeFrom, output, fontFamilies = [], ti
         sessionId,
         `new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))).then(() => ${readinessScript(sizeFrom)})`
       );
+      const missingFonts = fontFamilies.filter((family) => !loadedFonts.includes(family));
+      if (fitSelector && (await evaluate(devtools, sessionId, overflowScript(fitSelector)))) {
+        return { width, height, missingFonts, overflowing: true };
+      }
       const shot = await devtools.send(
         "Page.captureScreenshot",
         { format: "png", clip: { x: 0, y: 0, width, height, scale: 1 }, captureBeyondViewport: false },
         sessionId
       );
       fs.writeFileSync(output, Buffer.from(shot.data, "base64"));
-      return { width, height, missingFonts: fontFamilies.filter((family) => !loadedFonts.includes(family)) };
+      return { width, height, missingFonts, overflowing: false };
     };
 
     const result = await Promise.race([render(), failed]);
@@ -267,6 +330,8 @@ export async function renderPage({ html, sizeFrom, output, fontFamilies = [], ti
     return result;
   } finally {
     clearTimeout(timer);
+    process.off("SIGINT", onSignal);
+    process.off("SIGTERM", onSignal);
     if (child) {
       if (child.exitCode === null && child.signalCode === null) {
         await new Promise((resolve) => {
@@ -279,6 +344,6 @@ export async function renderPage({ html, sizeFrom, output, fontFamilies = [], ti
       }
       killGroup(child);
     }
-    fs.rmSync(profile, { recursive: true, force: true });
+    removeProfile(profile);
   }
 }

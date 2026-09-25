@@ -62,7 +62,16 @@ const OPTION_COMMANDS = Object.freeze({
   voice: ["ref-video"],
   keyframe: ["ref-video"],
   "first-frame": ["ref-video"],
-  "last-frame": ["ref-video"]
+  "last-frame": ["ref-video"],
+  // The local tools' own options, refused here so a Grok run never drops them silently.
+  text: ["overlay"],
+  sub: ["overlay"],
+  brand: ["overlay"],
+  position: ["overlay"],
+  style: ["overlay"],
+  mode: ["reframe"],
+  anchor: ["reframe"],
+  reencode: ["concat"]
 });
 
 function notApplicable(option, command) {

@@ -30,8 +30,8 @@ For text laid over a picture — a title, a price, a date — generate the pictu
 }
 ```
 
-- `colors`: `text` for the title, `accent` for the subtitle (else `text`), `primary` for the `bold` band, `background` and `secondary` for the `glass` panel and its border. Hex, `rgb()`/`rgba()` or colour names.
-- `fonts`: a Google Fonts family name — loaded over the network when rendering — or a path, relative to `brand.json`, to a `.ttf`, `.otf`, `.woff` or `.woff2` file, which is embedded and needs no network. (The file form goes beyond the original convention, for brand fonts that are not on Google Fonts.) A font that does not load is reported, and a fallback is drawn.
+- `colors`: `text` for the title, `accent` for the subtitle (else `text`), `primary` for the `bold` band, `background` and `secondary` for the `glass` panel and its border. Hex, `rgb()`/`rgba()`, `hsl()`/`hsla()` or CSS colour names; anything else is refused, so a typo cannot pass silently.
+- `fonts`: a Google Fonts family name — loaded over the network when rendering — or a path (relative to `brand.json`, or absolute) to a `.ttf`, `.otf`, `.woff` or `.woff2` file, which is embedded and needs no network. (The file form goes beyond the original convention, for brand fonts that are not on Google Fonts.) A font that does not load is reported, and a fallback is drawn.
 - `logo`: an image path relative to `brand.json`, shown above the title.
 
 ## Structure

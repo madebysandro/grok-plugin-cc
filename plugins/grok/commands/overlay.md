@@ -1,6 +1,6 @@
 ---
 description: Put exact text over an image, rendered in HTML by headless Chrome (local; no Grok)
-argument-hint: '--image PATH --text "..." [--sub "..."] [--brand brand.json] [--position top|center|bottom] [--style clean|bold|glass] [--out DIR] [--name SLUG]'
+argument-hint: '--image PATH --text "..." [--sub "..."] [--brand brand.json] [--position top|center|bottom] [--style clean|bold|glass] [--timeout SECS] [--out DIR] [--name SLUG]'
 allowed-tools: Bash(node:*), Read
 ---
 
@@ -16,7 +16,8 @@ Argument handling:
 - `--position` places the text block: `top`, `center` or `bottom` (default).
 - `--style`: `clean` (default; text with a soft shadow), `bold` (a solid band in the brand's primary colour) or `glass` (a translucent, blurred panel).
 - `--brand` points at a `brand.json` (colours, fonts, logo; see the `grok-imagine-prompting` skill). Without it, the text is white in the system's sans-serif.
-- The output is a PNG exactly the size of the base image.
+- The output is a PNG exactly the size of the base image; a picture with transparency keeps it. Long words wrap; text too long for the picture is refused rather than cut off.
+- `--timeout SECS` (1–600, default 60) bounds the render; Chrome is stopped when it runs out.
 
 Execution — local, a few seconds, always in the foreground:
 

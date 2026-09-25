@@ -338,7 +338,7 @@ async function runMediaCommand({ command, options, positionals, cwd, promptBuild
   process.exit(2);
 }
 
-/** `last-frame`, `concat`, `mute`, `reframe`: ffmpeg on local files, no Grok. */
+/** The local tools (`LOCAL_TOOLS`): ffmpeg or Chrome on local files, no Grok. */
 async function commandLocalTool({ command, options, positionals, cwd }) {
   let result;
   try {
@@ -533,7 +533,7 @@ function commandHelp() {
       "  reframe <image|video> --aspect W:H [--mode crop|pad] [--anchor center|top|bottom|left|right]",
       "                              Crop, or pad on a blurred copy, to another ratio",
       '  overlay --image I --text "T" [--sub "S"] [--brand brand.json] [--position top|center|bottom] [--style clean|bold|glass]',
-      "                              Exact text over an image, rendered by headless Chrome",
+      "          [--timeout SECS]    Exact text over an image, rendered by headless Chrome (timeout 1-600 s, default 60)",
       "",
       "Common options:",
       "  --out DIR        Output directory (default: grok-media/)",

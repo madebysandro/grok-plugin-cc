@@ -15,6 +15,10 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
+
+import { MediaToolError } from "./ffmpeg.mjs";
+import { renderPage, requireChrome } from "./html-render.mjs";
 
 export const OVERLAY_POSITIONS = Object.freeze(["top", "center", "bottom"]);
 export const OVERLAY_STYLES = Object.freeze(["clean", "bold", "glass"]);
@@ -29,12 +33,47 @@ const DEFAULT_COLORS = Object.freeze({
 
 const SYSTEM_SANS = '-apple-system, "Helvetica Neue", Helvetica, Arial, sans-serif';
 
-const COLOR = /^(#[0-9a-f]{3,4}|#[0-9a-f]{6}|#[0-9a-f]{8}|rgba?\(\s*[\d.]+%?\s*,\s*[\d.]+%?\s*,\s*[\d.]+%?\s*(,\s*[\d.]+%?\s*)?\)|[a-z]+)$/i;
+const HEX_COLOR = /^#([0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i;
+const FUNCTION_COLOR = /^(rgb|rgba|hsl|hsla)\(\s*[\d.]+(deg|%)?(\s*[,\s]\s*[\d.]+%?){2}(\s*[,/]\s*[\d.]+%?)?\s*\)$/i;
+
+/** CSS's named colours: a word outside this list is a typo, not a colour. */
+const NAMED_COLORS = new Set(
+  (
+    "transparent aliceblue antiquewhite aqua aquamarine azure beige bisque black blanchedalmond blue blueviolet brown " +
+    "burlywood cadetblue chartreuse chocolate coral cornflowerblue cornsilk crimson cyan darkblue darkcyan darkgoldenrod " +
+    "darkgray darkgreen darkgrey darkkhaki darkmagenta darkolivegreen darkorange darkorchid darkred darksalmon " +
+    "darkseagreen darkslateblue darkslategray darkslategrey darkturquoise darkviolet deeppink deepskyblue dimgray " +
+    "dimgrey dodgerblue firebrick floralwhite forestgreen fuchsia gainsboro ghostwhite gold goldenrod gray green " +
+    "greenyellow grey honeydew hotpink indianred indigo ivory khaki lavender lavenderblush lawngreen lemonchiffon " +
+    "lightblue lightcoral lightcyan lightgoldenrodyellow lightgray lightgreen lightgrey lightpink lightsalmon " +
+    "lightseagreen lightskyblue lightslategray lightslategrey lightsteelblue lightyellow lime limegreen linen magenta " +
+    "maroon mediumaquamarine mediumblue mediumorchid mediumpurple mediumseagreen mediumslateblue mediumspringgreen " +
+    "mediumturquoise mediumvioletred midnightblue mintcream mistyrose moccasin navajowhite navy oldlace olive olivedrab " +
+    "orange orangered orchid palegoldenrod palegreen paleturquoise palevioletred papayawhip peachpuff peru pink plum " +
+    "powderblue purple rebeccapurple red rosybrown royalblue saddlebrown salmon sandybrown seagreen seashell sienna " +
+    "silver skyblue slateblue slategray slategrey snow springgreen steelblue tan teal thistle tomato turquoise violet " +
+    "wheat white whitesmoke yellow yellowgreen"
+  ).split(" ")
+);
+
+function isColor(value) {
+  if (typeof value !== "string") {
+    return false;
+  }
+  const color = value.trim();
+  return HEX_COLOR.test(color) || FUNCTION_COLOR.test(color) || NAMED_COLORS.has(color.toLowerCase());
+}
 const GOOGLE_FONT_NAME = /^[A-Za-z0-9][A-Za-z0-9 -]*$/;
 const FONT_FILES = { ".ttf": ["font/ttf", "truetype"], ".otf": ["font/otf", "opentype"], ".woff": ["font/woff", "woff"], ".woff2": ["font/woff2", "woff2"] };
 const LOGO_TYPES = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp", ".gif": "image/gif", ".svg": "image/svg+xml" };
 
-class BrandError extends Error {}
+/** A brand kit that cannot be used as it is. */
+export class BrandError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = "BrandError";
+  }
+}
 
 function dataUrl(file, mime) {
   return `data:${mime};base64,${fs.readFileSync(file).toString("base64")}`;
@@ -79,8 +118,8 @@ export function loadBrand(file) {
     if (!Object.hasOwn(DEFAULT_COLORS, role)) {
       continue;
     }
-    if (!COLOR.test(String(value).trim())) {
-      throw new BrandError(`colors.${role} "${value}" is not a colour; use #hex, rgb(...)/rgba(...) or a colour name.`);
+    if (!isColor(value)) {
+      throw new BrandError(`colors.${role} ${JSON.stringify(value)} is not a colour; use #hex, rgb()/rgba(), hsl()/hsla() or a CSS colour name.`);
     }
     colors[role] = String(value).trim();
   }
@@ -108,7 +147,6 @@ export function loadBrand(file) {
   return { name: raw.name ? String(raw.name) : null, colors, fonts, logo };
 }
 
-export { BrandError };
 
 function escapeHtml(text) {
   return String(text).replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character]);
@@ -154,7 +192,7 @@ const PLACEMENT = {
  */
 export function buildOverlayHtml({ imageUrl, text, sub = null, position, style, brand = null }) {
   const colors = brand?.colors ?? DEFAULT_COLORS;
-  const fonts = brand?.fonts ?? {};
+  const fonts = usedFonts(brand, sub);
   const { links, faces } = fontSources(fonts);
 
   const panel = {
@@ -169,14 +207,14 @@ export function buildOverlayHtml({ imageUrl, text, sub = null, position, style, 
   const css = [
     ...faces,
     "* { box-sizing: border-box; }",
-    "html, body { margin: 0; padding: 0; width: 100vw; height: 100vh; overflow: hidden; background: #000; }",
+    "html, body { margin: 0; padding: 0; width: 100vw; height: 100vh; overflow: hidden; background: transparent; }",
     ".base { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }",
     `.block { position: absolute; left: 6vw; right: 6vw; ${PLACEMENT[position]} text-align: center;${panel} }`,
     ".logo { display: block; margin: 0 auto 1.6vw; height: min(9vw, 12vh); width: auto; }",
     `.title { margin: 0; font-family: ${fontStack(fonts.heading)}; font-weight: ${style === "bold" ? 800 : 700}; ` +
-      `font-size: min(7vw, 11vh); line-height: 1.12; color: ${colors.text}; white-space: pre-line;${shadow} }`,
+      `font-size: min(7vw, 11vh); line-height: 1.12; color: ${colors.text}; white-space: pre-line; overflow-wrap: anywhere;${shadow} }`,
     `.sub { margin: 1.2vw 0 0; font-family: ${fontStack(fonts.body ?? fonts.heading)}; font-weight: 400; ` +
-      `font-size: min(3.4vw, 5.5vh); line-height: 1.3; color: ${colors.accent ?? colors.text}; white-space: pre-line;${shadow} }`
+      `font-size: min(3.4vw, 5.5vh); line-height: 1.3; color: ${colors.accent ?? colors.text}; white-space: pre-line; overflow-wrap: anywhere;${shadow} }`
   ];
 
   return [
@@ -201,8 +239,59 @@ export function buildOverlayHtml({ imageUrl, text, sub = null, position, style, 
     .join("\n");
 }
 
+/** The fonts the page sets text in: the heading's, and the body's only when there is a subtitle for it. */
+function usedFonts(brand, sub) {
+  const { heading, body } = brand?.fonts ?? {};
+  return { ...(heading ? { heading } : {}), ...(sub && body ? { body } : {}) };
+}
+
 /** The font families the page asks for, to check they loaded, each with the name the brand file gave it. */
-export function requestedFonts(brand) {
-  const byFamily = new Map(Object.values(brand?.fonts ?? {}).map((font) => [font.family, font.label]));
+export function requestedFonts(brand, { sub = null } = {}) {
+  const byFamily = new Map(Object.values(usedFonts(brand, sub)).map((font) => [font.family, font.label]));
   return [...byFamily].map(([family, label]) => ({ family, label }));
+}
+
+/**
+ * Everything an overlay run needs, checked before anything is written: the
+ * brand kit (a `BrandError` becomes a refusal), Chrome's presence, and the page.
+ * `settings` are the parsed options: `{ text, sub, position, style, timeoutMs }`.
+ */
+export function prepareOverlay(input, settings, { brandFile = null } = {}) {
+  let brand = null;
+  if (brandFile) {
+    try {
+      brand = loadBrand(brandFile);
+    } catch (error) {
+      throw error instanceof BrandError ? new MediaToolError(error.message) : error;
+    }
+  }
+  requireChrome();
+  const { text, sub, position, style } = settings;
+  return { ...settings, brand, html: buildOverlayHtml({ imageUrl: pathToFileURL(input).href, text, sub, position, style, brand }) };
+}
+
+/**
+ * Render a prepared overlay to `output`. Text that does not fit on the picture
+ * is refused rather than cropped; brand fonts that did not load come back as
+ * notes. Returns what the manifest records, plus `notes`.
+ */
+export async function renderOverlay({ html, brand, text, sub, position, style, timeoutMs }, output) {
+  const fonts = requestedFonts(brand, { sub });
+  const { width, height, missingFonts, overflowing } = await renderPage({
+    html,
+    sizeFrom: "img.base",
+    fitSelector: ".block",
+    output,
+    fontFamilies: fonts.map((font) => font.family),
+    timeoutMs
+  });
+  if (overflowing) {
+    throw new MediaToolError(
+      `The text does not fit on the ${width}x${height} image, so it would be cut off. Shorten it, split it with --sub, or use a larger image.`
+    );
+  }
+  const notes = fonts
+    .filter((font) => missingFonts.includes(font.family))
+    .map((font) => `Note: the font "${font.label}" did not load (offline, not a Google Fonts family, or not a usable font file), so a fallback font was used.`);
+  return { text, sub, position, style, brand: brand?.name ?? null, width, height, notes };
 }
