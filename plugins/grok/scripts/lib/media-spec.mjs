@@ -49,11 +49,18 @@ export const IMAGE_MODEL_CHOICES = Object.freeze([...Object.keys(IMAGE_MODELS), 
 const VIDEO_COMMANDS = ["animate", "video", "ref-video"];
 
 /**
- * The commands each option means something for. Any other command refuses it
- * rather than silently dropping it, so the user never thinks it applied.
+ * The commands each option means something for. Any other generation command
+ * refuses it rather than silently dropping it, so the user never thinks it
+ * applied; the entries naming `ask` or a local tool only say, in that message,
+ * where the option belongs (those commands check their own options).
  * `--image-model` needs a Grok run that makes an image.
  */
 const OPTION_COMMANDS = Object.freeze({
+  // Only these prompts ask for several results; only these commands take --image inputs;
+  // only ask can be allowed to write files.
+  count: ["image", "edit"],
+  image: ["edit", "animate", "ref-video", "overlay"],
+  write: ["ask"],
   draft: VIDEO_COMMANDS,
   resolution: VIDEO_COMMANDS,
   duration: VIDEO_COMMANDS,
@@ -190,6 +197,9 @@ export function resolveMediaSpec(command, options = {}) {
       return { aspect: pickAspect(options.aspect, IMAGE_EDIT_ASPECTS, "image_edit"), imageModel: pickImageModel(options["image-model"]) };
 
     case "animate":
+      if (asList(options.image).length > 1) {
+        throw new MediaOptionError(`animate takes one --image (the still to animate); got ${asList(options.image).length}.`);
+      }
       if (options.aspect !== undefined) {
         throw new MediaOptionError(
           "--aspect does not apply to animate: image_to_video keeps the source image's shape. Crop the still first."

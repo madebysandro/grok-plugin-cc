@@ -141,6 +141,22 @@ export function splitArgumentString(raw) {
   return tokens;
 }
 
+/**
+ * Parse a whole-number option, refusing anything outside `min`..`max` rather
+ * than quietly changing it: the user gets what they asked for, or is told why not.
+ */
+export function parseWholeNumber(value, { flag, fallback, min, max }) {
+  if (value === undefined || value === null) {
+    return fallback;
+  }
+  const text = String(value).trim();
+  const number = Number(text);
+  if (!/^\d+$/.test(text) || number < min || number > max) {
+    throw new Error(`${flag} ${value} is not a whole number from ${min} to ${max}.`);
+  }
+  return number;
+}
+
 /** Parse a positive integer option, falling back when absent or malformed. */
 export function parseCount(value, { fallback = 1, min = 1, max = 8 } = {}) {
   if (value === undefined || value === null || value === "") {
