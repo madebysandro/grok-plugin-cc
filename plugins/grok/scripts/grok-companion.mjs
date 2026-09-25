@@ -92,7 +92,9 @@ const SHARED_BOOLEAN_OPTIONS = ["json", "verbatim", "write", "draft", "loop", "r
 /**
  * Flags the original plugin parsed but never acted on. Someone used to them may
  * still type them; they are recognised only to be refused, so they neither
- * vanish nor slip into a (billed) Grok prompt as text.
+ * vanish nor slip into a (billed) Grok prompt as text. `ask` is the exception:
+ * it is kept exactly as it was, and there they were always accepted and inert
+ * (`ask` is read-only by default, so `--read-only` already held).
  */
 const DEAD_OPTIONS = ["raw", "keep-session", "read-only"];
 
@@ -642,7 +644,7 @@ async function main() {
     fail(error.message);
   }
   const { options, positionals } = parsed;
-  const dead = DEAD_OPTIONS.find((option) => options[option] !== undefined);
+  const dead = command === "ask" ? undefined : DEAD_OPTIONS.find((option) => options[option] !== undefined);
   if (dead) {
     fail(`--${dead} is not an option of this plugin.`);
   }
