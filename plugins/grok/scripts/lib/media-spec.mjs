@@ -39,10 +39,20 @@ export const IMAGE_MODELS = Object.freeze({
   quality: "grok-imagine-image-quality",
   standard: "grok-imagine-image"
 });
-export const DEFAULT_IMAGE_MODEL = IMAGE_MODELS["2.0"];
+export const DEFAULT_IMAGE_MODEL_CHOICE = "2.0";
+export const DEFAULT_IMAGE_MODEL = IMAGE_MODELS[DEFAULT_IMAGE_MODEL_CHOICE];
 
 /** `--image-model server`: pass no override, so xAI's current default applies. */
 export const SERVER_IMAGE_MODEL = "server";
+export const IMAGE_MODEL_CHOICES = Object.freeze([...Object.keys(IMAGE_MODELS), SERVER_IMAGE_MODEL]);
+
+/** The commands whose Grok run makes an image, so `--image-model` means something. */
+const IMAGE_MODEL_COMMANDS = ["image", "edit", "video"];
+
+/** Why `--image-model` is refused on `command`, for the commands that make no image. */
+export function imageModelNotApplicable(command) {
+  return `--image-model does not apply to ${command}; it is for ${IMAGE_MODEL_COMMANDS.slice(0, -1).join(", ")} and ${IMAGE_MODEL_COMMANDS.at(-1)}.`;
+}
 
 export const IMAGE_TO_VIDEO_DURATIONS = Object.freeze([6, 10]);
 export const DEFAULT_VIDEO_DURATION = 6;
@@ -80,7 +90,7 @@ function pickImageModel(value) {
   }
   if (!Object.hasOwn(IMAGE_MODELS, choice)) {
     throw new MediaOptionError(
-      `--image-model ${value} is not a Grok image model. Use one of: ${[...Object.keys(IMAGE_MODELS), SERVER_IMAGE_MODEL].join(", ")}.`
+      `--image-model ${choice || '""'} is not a Grok image model. Use one of: ${IMAGE_MODEL_CHOICES.join(", ")}.`
     );
   }
   return IMAGE_MODELS[choice];
@@ -115,8 +125,9 @@ function pickSeconds(value, flag) {
 /**
  * Validate and normalise one command's generation options.
  *
- * Returns `{ aspect, duration, resolution, draft }` with only the fields that command
- * uses; throws `MediaOptionError` with a message fit to show the user.
+ * Returns `{ aspect, imageModel, duration, resolution, draft }` with only the
+ * fields that command uses; throws `MediaOptionError` with a message fit to
+ * show the user. `imageModel` is a model id, or `SERVER_IMAGE_MODEL`.
  */
 export function resolveMediaSpec(command, options = {}) {
   switch (command) {
@@ -135,7 +146,7 @@ export function resolveMediaSpec(command, options = {}) {
 
     case "animate":
       if (options["image-model"] !== undefined) {
-        throw new MediaOptionError("--image-model does not apply to animate; it is for image, edit and video.");
+        throw new MediaOptionError(imageModelNotApplicable(command));
       }
       if (options.aspect !== undefined) {
         throw new MediaOptionError(

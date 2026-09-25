@@ -30,15 +30,17 @@ import {
 import { collectAssets, resolveOutDir, slugify, writeManifest } from "./lib/assets.mjs";
 import {
   DEFAULT_IMAGE_MODEL,
+  DEFAULT_IMAGE_MODEL_CHOICE,
   DEFAULT_VIDEO_DURATION,
   DEFAULT_VIDEO_RESOLUTION,
   DRAFT_VIDEO_RESOLUTION,
   IMAGE_EDIT_ASPECTS,
   IMAGE_GEN_ASPECTS,
-  IMAGE_MODELS,
+  IMAGE_MODEL_CHOICES,
   IMAGE_TO_VIDEO_DURATIONS,
   MediaOptionError,
   SERVER_IMAGE_MODEL,
+  imageModelNotApplicable,
   VIDEO_RESOLUTIONS,
   resolveMediaSpec
 } from "./lib/media-spec.mjs";
@@ -365,6 +367,10 @@ async function commandSetup({ options }) {
 }
 
 async function commandAsk({ options, positionals, cwd }) {
+  // ask may well draw an image, but with Grok's own choice of model; say so rather than ignore the flag.
+  if (options["image-model"] !== undefined) {
+    fail(imageModelNotApplicable("ask"));
+  }
   const binary = requireGrok();
   const json = Boolean(options.json);
 
@@ -532,8 +538,8 @@ function commandHelp() {
       "  --verbatim=false Let Grok rewrite the prompt instead of passing it through",
       "",
       "Image model (image, edit, and video's opening frame):",
-      `  --image-model M  ${Object.keys(IMAGE_MODELS).join(", ")} or ${SERVER_IMAGE_MODEL} (default ${DEFAULT_IMAGE_MODEL};`,
-      "                   server passes no override, so xAI's current default applies)",
+      `  --image-model M  ${IMAGE_MODEL_CHOICES.join(", ")} (default ${DEFAULT_IMAGE_MODEL_CHOICE}, i.e. ${DEFAULT_IMAGE_MODEL};`,
+      `                   ${SERVER_IMAGE_MODEL} passes no override, so xAI's current default applies)`,
       "",
       "Video options (animate, video):",
       `  --duration SECS  ${IMAGE_TO_VIDEO_DURATIONS.join(" or ")} (default ${DEFAULT_VIDEO_DURATION})`,

@@ -19,10 +19,20 @@ export function lastGeneration(sandbox) {
   return manifest.generations.at(-1);
 }
 
-/** Run the companion with grok scripted to make `calls`, checking the exit code. */
-export async function generate(sandbox, args, calls, { expectCode = 0 } = {}) {
+/** Write a stand-in source image into the workspace and return its path. */
+export function sourceImage(sandbox, name = "in.png") {
+  const file = path.join(sandbox.workspace, name);
+  fs.writeFileSync(file, "png-bytes");
+  return file;
+}
+
+/**
+ * Run the companion with grok scripted to make `calls`, checking the exit code.
+ * `env` adds variables to the companion's environment, as if set in the user's shell.
+ */
+export async function generate(sandbox, args, calls, { expectCode = 0, env } = {}) {
   sandbox.scenario({ calls });
-  const result = await sandbox.run(args);
+  const result = await sandbox.run(args, { env });
   assert.equal(result.code, expectCode, result.stderr || result.stdout);
   return result;
 }
