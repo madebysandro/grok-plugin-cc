@@ -1,6 +1,7 @@
 /**
- * The local utilities — `last-frame`, `concat`, `mute`, `reframe` — that
- * assemble pieces from earlier results without Grok and without quota.
+ * The local utilities — ffmpeg's `last-frame`, `concat`, `mute`, `reframe`,
+ * and Python's `cutout`, `split` — that assemble pieces from earlier results
+ * without Grok and without quota.
  *
  * Each run is recorded like a generation (a job plus a manifest entry, with the
  * tool's `engine` — e.g. `tool: "ffmpeg"` — as the tool that made each file), so
@@ -12,6 +13,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 import { resolveOutDir, slugify, uniquePath, writeManifest } from "./assets.mjs";
+import { planCutout, planSplit, writeCutout, writeSplit } from "./chroma.mjs";
 import {
   MediaToolError,
   checkConcatCopy,
@@ -147,6 +149,29 @@ export const LOCAL_TOOLS = Object.freeze({
     }
   },
 
+  cutout: {
+    title: "Cut out",
+    engine: "python",
+    usage: "cutout <image> [--key #00FF00] [--tolerance N] [--out DIR] [--name SLUG]",
+    inputs: { accept: ["image"], min: 1, max: 1 },
+    options: ["key", "tolerance"],
+    prepare: async ([input], options) => ({ stem: `${stemOf(input)}-cutout`, extension: ".png", work: await planCutout(input, options) }),
+    run: (_inputs, output, work) => writeCutout(work, output)
+  },
+
+  split: {
+    title: "Split",
+    engine: "python",
+    usage: "split <sheet image> [--expect N] [--bg auto|#00FF00] [--tolerance N] [--out DIR] [--name SLUG]",
+    inputs: { accept: ["image"], min: 1, max: 1 },
+    options: ["expect", "bg", "tolerance"],
+    prepare: async ([input], options) => {
+      const { count, work } = await planSplit(input, options);
+      return { stem: `${stemOf(input)}-item`, extension: ".png", count, work };
+    },
+    run: (_inputs, outputs, work) => writeSplit(work, outputs)
+  },
+
   mute: {
     title: "Muted",
     engine: "ffmpeg",
@@ -197,15 +222,15 @@ export async function runLocalTool(command, { options, positionals, cwd }) {
   const { stem, extension, work, count } = await tool.prepare(inputs, options);
   const outDir = resolveOutDir(options.out, cwd, "grok-media");
   const base = options.name ? slugify(options.name) : stem;
-  const outputs =
-    count === undefined
-      ? [uniquePath(outDir, base, extension)]
-      : Array.from({ length: count }, (_, index) => uniquePath(outDir, `${base}-${index + 1}`, extension));
+  const several = count !== undefined;
+  const outputs = several
+    ? Array.from({ length: count }, (_, index) => uniquePath(outDir, `${base}-${index + 1}`, extension))
+    : [uniquePath(outDir, base, extension)];
 
   const startedAt = Date.now();
   let details;
   try {
-    details = await tool.run(inputs, count === undefined ? outputs[0] : outputs, work);
+    details = await tool.run(inputs, several ? outputs : outputs[0], work);
   } catch (error) {
     // Leave no half-written file behind to take the name the next run should get.
     for (const output of outputs) {

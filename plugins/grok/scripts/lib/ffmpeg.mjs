@@ -18,7 +18,7 @@ import path from "node:path";
 /** Checked after PATH, where Homebrew and most installers put the binaries. */
 const FALLBACK_DIRS = ["/opt/homebrew/bin", "/usr/local/bin"];
 
-/** A local tool could not do its job; `exitCode` is 1 for bad input, 2 when ffmpeg itself failed. */
+/** A local tool could not do its job; `exitCode` is 1 for bad input, 2 when the tool itself failed. */
 export class MediaToolError extends Error {
   constructor(message, exitCode = 1) {
     super(message);
@@ -27,7 +27,8 @@ export class MediaToolError extends Error {
   }
 }
 
-function findBinary(name) {
+/** An executable called `name` on PATH or in the usual install dirs, or null. */
+export function findBinary(name) {
   const dirs = [...(process.env.PATH ?? "").split(path.delimiter).filter(Boolean), ...FALLBACK_DIRS];
   for (const dir of dirs) {
     const candidate = path.join(dir, name);
@@ -48,6 +49,14 @@ function run(name, args) {
   if (!binary) {
     throw new MediaToolError(`${name} not found. Install ffmpeg (for example \`brew install ffmpeg\`) and re-run.`);
   }
+  return runProgram(binary, args, name);
+}
+
+/**
+ * Run `binary` to completion, resolving with `{ code, stdout, stderr }`; one
+ * that cannot start is a tool failure (exit code 2), named by `label`.
+ */
+export function runProgram(binary, args, label = binary) {
   return new Promise((resolve, reject) => {
     const child = spawn(binary, args, { stdio: ["ignore", "pipe", "pipe"] });
     let stdout = "";
@@ -58,7 +67,7 @@ function run(name, args) {
     child.stderr.on("data", (chunk) => {
       stderr += chunk;
     });
-    child.on("error", (error) => reject(new MediaToolError(`${name} could not start: ${error.message}`, 2)));
+    child.on("error", (error) => reject(new MediaToolError(`${label} could not start: ${error.message}`, 2)));
     child.on("close", (code) => resolve({ code, stdout, stderr }));
   });
 }

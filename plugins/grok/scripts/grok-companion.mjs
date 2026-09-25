@@ -82,7 +82,7 @@ const MEDIA_COMMANDS = new Set(Object.keys(MEDIA_TOOL_ALLOWLIST));
 
 const SHARED_VALUE_OPTIONS = [
   "out", "aspect", "count", "name", "model", "effort", "timeout", "duration", "resolution", "image-model", "job",
-  "first-frame", "last-frame", "mode", "anchor"
+  "first-frame", "last-frame", "mode", "anchor", "key", "tolerance", "expect", "bg"
 ];
 const SHARED_BOOLEAN_OPTIONS = ["json", "verbatim", "raw", "keep-session", "read-only", "write", "draft", "loop", "reencode"];
 
@@ -338,7 +338,7 @@ async function runMediaCommand({ command, options, positionals, cwd, promptBuild
   process.exit(2);
 }
 
-/** `last-frame`, `concat`, `mute`, `reframe`: ffmpeg on local files, no Grok. */
+/** The local tools (see lib/local-tools.mjs): ffmpeg or Python on local files, no Grok. */
 async function commandLocalTool({ command, options, positionals, cwd }) {
   let result;
   try {
@@ -526,12 +526,16 @@ function commandHelp() {
       "  result  [job-id]            Show a job's output files",
       "  cancel  [job-id]            Cancel a running job",
       "",
-      "Local tools (ffmpeg on your files; no Grok, no quota):",
+      "Local tools (ffmpeg or Python on your files; no Grok, no quota):",
       "  last-frame <video>          Save the clip's last frame as a PNG",
       "  concat <video> <video>...   Join clips; --reencode when their size, fps or codecs differ",
       "  mute <video>                Drop the soundtrack, keeping the video as it is",
       "  reframe <image|video> --aspect W:H [--mode crop|pad] [--anchor center|top|bottom|left|right]",
       "                              Crop, or pad on a blurred copy, to another ratio",
+      "  cutout <image> [--key #00FF00] [--tolerance N]",
+      "                              Clear a flat background to transparency, without a green fringe",
+      "  split <sheet> [--expect N] [--bg auto|#hex] [--tolerance N]",
+      "                              One transparent PNG per item of a sheet, all on one canvas",
       "",
       "Common options:",
       "  --out DIR        Output directory (default: grok-media/)",

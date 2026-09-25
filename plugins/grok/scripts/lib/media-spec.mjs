@@ -62,7 +62,11 @@ const OPTION_COMMANDS = Object.freeze({
   voice: ["ref-video"],
   keyframe: ["ref-video"],
   "first-frame": ["ref-video"],
-  "last-frame": ["ref-video"]
+  "last-frame": ["ref-video"],
+  key: ["cutout"],
+  tolerance: ["cutout", "split"],
+  expect: ["split"],
+  bg: ["split"]
 });
 
 function notApplicable(option, command) {
