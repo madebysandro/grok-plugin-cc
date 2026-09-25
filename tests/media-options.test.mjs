@@ -195,3 +195,63 @@ test("an image run's manifest has no video settings", async (t) => {
     assert.ok(!(key in generation), `${key} should not be recorded for an image`);
   }
 });
+
+test("options a generation command would ignore are refused, naming the commands they are for", async (t) => {
+  const sandbox = createSandbox(t);
+  const image = sourceImage(sandbox);
+
+  const refusals = [
+    [["animate", "drift", "--image", image, "--count", "2"], /--count does not apply to animate; it is for image and edit\./],
+    [["video", "a kite at dusk", "--count", "2"], /--count does not apply to video; it is for image and edit\./],
+    [["ref-video", "a kite at dusk", "--image", image, "--count", "2"], /--count does not apply to ref-video; it is for image and edit\./],
+    [["image", "a red kite", "--image", image], /--image does not apply to image; it is for edit, animate, ref-video and overlay\./],
+    [["video", "a kite at dusk", "--image", image], /--image does not apply to video; it is for edit, animate, ref-video and overlay\./],
+    [["image", "a red kite", "--write"], /--write does not apply to image; it is for ask\./]
+  ];
+  for (const [args, pattern] of refusals) {
+    await assertRejectedBeforeGrok(sandbox, args, pattern);
+  }
+});
+
+test("a flag the plugin does not have reaches Grok in the prompt rather than vanishing", async (t) => {
+  const sandbox = createSandbox(t);
+
+  await generate(sandbox, ["image", "a red kite", "--raw"], [{ tool: "image_gen" }]);
+
+  assert.ok(lastPromptLines(sandbox).includes("a red kite --raw"), lastPromptLines(sandbox).join("\n"));
+});
+
+test("animate refuses a second --image instead of animating only the first", async (t) => {
+  const sandbox = createSandbox(t);
+  const image = sourceImage(sandbox);
+
+  await assertRejectedBeforeGrok(
+    sandbox,
+    ["animate", "drift", "--image", image, "--image", image],
+    /animate takes one --image \(the still to animate\); got 2\./
+  );
+});
+
+test("--count and --timeout values out of range are refused, not quietly changed", async (t) => {
+  const sandbox = createSandbox(t);
+
+  const refusals = [
+    [["image", "a red kite", "--count", "20"], /--count 20 is not a whole number from 1 to 8\./],
+    [["image", "a red kite", "--count", "abc"], /--count abc is not a whole number from 1 to 8\./],
+    [["image", "a red kite", "--timeout", "5"], /--timeout 5 is not a whole number from 30 to 3600\./],
+    [["ask", "summarise the README", "--timeout", "forever"], /--timeout forever is not a whole number from 30 to 3600\./]
+  ];
+  for (const [args, pattern] of refusals) {
+    await assertRejectedBeforeGrok(sandbox, args, pattern);
+  }
+});
+
+test("--background is for Claude, which runs the command in the background; it never reaches Grok", async (t) => {
+  const sandbox = createSandbox(t);
+
+  await generate(sandbox, ["image", "a red kite", "--background"], [{ tool: "image_gen" }]);
+
+  const lines = lastPromptLines(sandbox);
+  assert.ok(lines.includes("a red kite"), lines.join("\n"));
+  assert.ok(!lines.some((line) => line.includes("--background")), lines.join("\n"));
+});
