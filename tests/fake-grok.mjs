@@ -6,10 +6,13 @@
  * and cwd it received to `<control-dir>/calls.jsonl`, then acts out
  * `<control-dir>/scenario.json`:
  *
- *   { calls: [{ tool, prompt?, aspectRatio?, content?, error? }] }
+ *   { calls: [{ tool, prompt?, aspectRatio?, content?, error? }], delayMs?, exit? }
  *
- * A call with `error` fails the way Grok logs a failed tool call. `--version`
- * just prints a version and records no session, like the real CLI.
+ * A call with `error` fails the way Grok logs a failed tool call. `delayMs`
+ * holds the run back that long first, like a slow one. `exit: { code, stderr }`
+ * makes the run die before it writes a session or an answer: it prints
+ * `stderr` and exits with `code`. `--version` just prints a version and
+ * records no session, like the real CLI.
  *
  * Every call is written into the session folder the way Grok does it — media
  * file plus `updates.jsonl` entries — and the JSON envelope goes to stdout.
@@ -62,6 +65,14 @@ if (!grokHome) {
 
 const scenarioFile = path.join(controlDir, "scenario.json");
 const scenario = fs.existsSync(scenarioFile) ? JSON.parse(fs.readFileSync(scenarioFile, "utf8")) : {};
+
+if (scenario.delayMs) {
+  await new Promise((resolve) => setTimeout(resolve, scenario.delayMs));
+}
+if (scenario.exit) {
+  process.stderr.write(scenario.exit.stderr ?? "");
+  process.exit(scenario.exit.code);
+}
 
 function flagValue(name) {
   const index = args.indexOf(name);

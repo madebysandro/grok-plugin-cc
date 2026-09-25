@@ -413,3 +413,16 @@ test("when ffmpeg itself fails, the tool exits 2 with its message and records no
   assert.deepEqual(JSON.parse((await sandbox.run(["status", "--json"])).stdout).jobs, []);
   assert.deepEqual(sandbox.grokCalls(), []);
 });
+
+test("with --json, a local tool that fails reports it on stdout the way a failed generation does", needsFfmpeg, async (t) => {
+  const sandbox = createSandbox(t);
+  fs.writeFileSync(path.join(sandbox.workspace, "broken.mp4"), "not really a video");
+
+  const { code, stdout, stderr } = await sandbox.run(["mute", "broken.mp4", "--json"]);
+
+  assert.equal(code, 2, stderr);
+  const { reason, ...rest } = JSON.parse(stdout);
+  assert.deepEqual(rest, { ok: false, command: "mute" });
+  assert.match(reason, /ffprobe could not read .*broken\.mp4/);
+  assert.deepEqual(JSON.parse((await sandbox.run(["status", "--json"])).stdout).jobs, []);
+});

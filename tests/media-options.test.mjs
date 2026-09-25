@@ -221,16 +221,30 @@ test("a flag the plugin does not have reaches Grok in the prompt rather than van
   assert.ok(lastPromptLines(sandbox).includes("a red kite --vivid"), lastPromptLines(sandbox).join("\n"));
 });
 
-test("the original plugin's dead flags are refused, not sent to Grok", async (t) => {
+test("the original plugin's dead flags are refused by the generation commands and the local tools, not sent to Grok", async (t) => {
   const sandbox = createSandbox(t);
+  const image = sourceImage(sandbox);
 
   const refusals = [
     [["image", "a red kite", "--raw"], /--raw is not an option of this plugin\./],
     [["video", "a kite at dusk", "--keep-session"], /--keep-session is not an option of this plugin\./],
-    [["status", "--raw"], /--raw is not an option of this plugin\./]
+    [["edit", "make it night", "--image", image, "--read-only"], /--read-only is not an option of this plugin\./],
+    [["ref-video", "<IMAGE_0> walks in", "--image", image, "--raw"], /--raw is not an option of this plugin\./],
+    [["mute", "clip.mp4", "--keep-session"], /--keep-session is not an option of this plugin\./]
   ];
   for (const [args, pattern] of refusals) {
     await assertRejectedBeforeGrok(sandbox, args, pattern);
+  }
+});
+
+test("status, result, cancel and setup still take the original plugin's dead flags, as before", async (t) => {
+  const sandbox = createSandbox(t);
+
+  for (const command of ["status", "result", "cancel", "setup"]) {
+    for (const flag of ["--raw", "--keep-session", "--read-only"]) {
+      const { code, stdout, stderr } = await sandbox.run([command, flag]);
+      assert.equal(code, 0, `${command} ${flag}: ${stderr || stdout}`);
+    }
   }
 });
 
@@ -258,14 +272,14 @@ test("animate refuses a second --image instead of animating only the first", asy
   );
 });
 
-test("--count and --timeout values out of range are refused, not quietly changed", async (t) => {
+test("the generation commands refuse --count and --timeout values out of range, not quietly changing them", async (t) => {
   const sandbox = createSandbox(t);
 
   const refusals = [
     [["image", "a red kite", "--count", "20"], /--count 20 is not a whole number from 1 to 8\./],
     [["image", "a red kite", "--count", "abc"], /--count abc is not a whole number from 1 to 8\./],
     [["image", "a red kite", "--timeout", "5"], /--timeout 5 is not a whole number from 30 to 3600\./],
-    [["ask", "summarise the README", "--timeout", "forever"], /--timeout forever is not a whole number from 30 to 3600\./]
+    [["video", "a kite at dusk", "--timeout", "forever"], /--timeout forever is not a whole number from 30 to 3600\./]
   ];
   for (const [args, pattern] of refusals) {
     await assertRejectedBeforeGrok(sandbox, args, pattern);

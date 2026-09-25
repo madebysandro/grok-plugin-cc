@@ -14,5 +14,5 @@ Output rules:
 
 - Present the companion's output.
 - If the job produced images, `Read` them so the user can see them inline.
-- If the job is still running, say so and leave it alone. Do not re-launch the command — that starts a second billed generation.
+- If the job is still running, say so and leave it alone. Do not re-launch the command — that starts a second generation, which spends quota again.
 - If files are listed as no longer on disk, report that plainly rather than implying they are still available.

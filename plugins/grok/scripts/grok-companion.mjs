@@ -11,7 +11,7 @@
 import fs from "node:fs";
 import path from "node:path";
 
-import { parseArgs, parseWholeNumber, splitArgumentString } from "./lib/args.mjs";
+import { parseArgs, parseCount, parseWholeNumber, splitArgumentString } from "./lib/args.mjs";
 import {
   findGrokBinary,
   getGrokVersion,
@@ -49,8 +49,8 @@ import {
   REFERENCE_VIDEO_ASPECTS,
   REFERENCE_VIDEO_DURATION,
   SERVER_IMAGE_MODEL,
-  imageModelNotApplicable,
   VIDEO_RESOLUTIONS,
+  optionNotApplicable,
   resolveMediaSpec,
   resolveReferenceInputs
 } from "./lib/media-spec.mjs";
@@ -80,6 +80,8 @@ const COMMANDS = new Set([
   ...Object.keys(LOCAL_TOOLS)
 ]);
 const MEDIA_COMMANDS = new Set(Object.keys(MEDIA_TOOL_ALLOWLIST));
+/** The commands that start a Grok run. */
+const GROK_COMMANDS = new Set([...MEDIA_COMMANDS, "ask"]);
 
 const SHARED_VALUE_OPTIONS = [
   "out", "aspect", "count", "name", "model", "effort", "timeout", "duration", "resolution", "image-model", "job",
@@ -92,12 +94,23 @@ const SHARED_BOOLEAN_OPTIONS = ["json", "verbatim", "write", "draft", "loop", "r
 
 /**
  * Flags the original plugin parsed but never acted on. Someone used to them may
- * still type them; they are recognised only to be refused, so they neither
- * vanish nor slip into a (billed) Grok prompt as text. `ask` is the exception:
- * it is kept exactly as it was, and there they were always accepted and inert
- * (`ask` is read-only by default, so `--read-only` already held).
+ * still type them; they are refused, so they neither vanish nor slip into a
+ * Grok prompt as text. The original plugin's commands other than the
+ * generation ones (`KEEP_DEAD_OPTIONS`) take them as they always did, accepted
+ * and inert (`ask` is read-only by default, so `--read-only` already held).
  */
 const DEAD_OPTIONS = ["raw", "keep-session", "read-only"];
+const KEEP_DEAD_OPTIONS = new Set(["ask", "status", "result", "cancel", "setup"]);
+
+/**
+ * The options the original plugin's `ask` took (`--background` was in its
+ * argument hint). `ask` keeps taking them exactly as before, whether or not
+ * they do anything for it, and refuses every option added since.
+ */
+const ASK_OPTIONS = new Set([
+  "out", "aspect", "count", "name", "model", "effort", "timeout", "duration", "job",
+  "json", "verbatim", "write", "background", ...DEAD_OPTIONS
+]);
 
 const ZDR_HINT = [
   "Cause: this xAI account has Zero Data Retention enabled",
@@ -371,6 +384,11 @@ async function commandLocalTool({ command, options, positionals, cwd }) {
     if (!(error instanceof MediaToolError)) {
       throw error;
     }
+    // The tool itself failed (exit 2): with --json, say so the way a failed generation does.
+    if (options.json && error.exitCode === 2) {
+      emit({ json: true, payload: { ok: false, command, reason: error.message }, text: error.message });
+      process.exit(2);
+    }
     fail(error.message, error.exitCode);
   }
   const { jobId, outDir, assets, elapsedMs } = result;
@@ -396,9 +414,10 @@ async function commandSetup({ options }) {
 }
 
 async function commandAsk({ options, positionals, cwd }) {
-  // ask may well draw an image, but with Grok's own choice of model; say so rather than ignore the flag.
-  if (options["image-model"] !== undefined) {
-    fail(imageModelNotApplicable("ask"));
+  // An option added since the original plugin would do nothing here, even as `--flag=false`; say so rather than drop it.
+  const added = Object.keys(options).find((option) => !ASK_OPTIONS.has(option));
+  if (added) {
+    fail(optionNotApplicable(added, "ask"));
   }
   const binary = requireGrok();
   const json = Boolean(options.json);
@@ -410,12 +429,8 @@ async function commandAsk({ options, positionals, cwd }) {
 
   // Read-only unless the caller explicitly opts into writes.
   const readOnly = options.write !== true;
-  let timeoutMs;
-  try {
-    timeoutMs = parseWholeNumber(options.timeout, { flag: "--timeout", fallback: 900, min: 30, max: 3600 }) * 1000;
-  } catch (error) {
-    fail(error.message);
-  }
+  // As in the original plugin: a value out of range is brought into it, and a malformed one means the default.
+  const timeoutMs = parseCount(options.timeout, { fallback: 900, min: 30, max: 3600 }) * 1000;
 
   const jobId = generateJobId("ask");
   upsertJob(cwd, { id: jobId, command: "ask", status: "running", prompt: truncate(prompt, 300), pid: process.pid });
@@ -443,7 +458,7 @@ async function commandAsk({ options, positionals, cwd }) {
       ? `Grok exceeded the ${Math.round(timeoutMs / 1000)}s timeout.`
       : `Grok exited with code ${run.code}.\n${truncate(run.stderr, 800)}`;
     if (json) {
-      emit({ json, payload: { ok: false, reason: message, sessionId: run.sessionId }, text: message });
+      emit({ json, payload: { ok: false, command: "ask", reason: message, sessionId: run.sessionId }, text: message });
     } else {
       process.stdout.write(`${message}\n`);
     }
@@ -454,7 +469,7 @@ async function commandAsk({ options, positionals, cwd }) {
 
   emit({
     json,
-    payload: { ok: true, text, sessionId: run.sessionId, elapsedMs, costUsd: Number.isFinite(costUsd) ? costUsd : null, readOnly },
+    payload: { ok: true, command: "ask", text, sessionId: run.sessionId, elapsedMs, costUsd: Number.isFinite(costUsd) ? costUsd : null, readOnly },
     text
   });
 }
@@ -558,7 +573,7 @@ function commandHelp() {
       "  animate <prompt> --image P  Animate a still with image_to_video",
       "  ref-video <prompt> inputs   Video from reference images, pinned frames and voices (reference_to_video)",
       "  ask     <prompt>            Delegate a general task to Grok",
-      "  status                      List background jobs for this workspace",
+      "  status                      List recent jobs of every kind in this workspace",
       "  result  [job-id]            Show a job's output files",
       "  cancel  [job-id]            Cancel a running job",
       "",
@@ -584,7 +599,8 @@ function commandHelp() {
       "  --name SLUG      Filename stem",
       "  --model M        Grok model id",
       "  --effort LEVEL   low | medium | high",
-      "  --timeout SECS   Run timeout (30-3600)",
+      "  --timeout SECS   Run timeout, 30-3600; ask brings a value outside that into range,",
+      "                   the other Grok commands refuse it",
       "  --json           Machine-readable output",
       "  --verbatim=false Let Grok rewrite the prompt instead of passing it through",
       "",
@@ -610,11 +626,14 @@ function commandHelp() {
       `  --aspect RATIO   ${REFERENCE_VIDEO_ASPECTS.join(", ")} (default ${DEFAULT_REFERENCE_ASPECT})`,
       "",
       "Inputs (--image, --first-frame, --last-frame, --keyframe, and a local tool's files) take a path",
-      "or an earlier result; the image inputs also take a data: URL:",
+      "or an earlier result:",
       "  @last            The last file the plugin saved in this workspace, by a",
       "                   generation or a local tool",
       "  job:<id>         That job's first file (ids are in the output and in status)",
-      "  job:<id>#N       That job's Nth file, counting from 1"
+      "  job:<id>#N       That job's Nth file, counting from 1",
+      "",
+      "The image inputs of edit, animate and ref-video also take a data: URL; overlay's --image",
+      "and the other local tools' files do not."
     ].join("\n") + "\n"
   );
 }
@@ -633,8 +652,9 @@ async function main() {
   }
 
   // Recursion guard: this process was started by a Grok run the plugin itself
-  // launched. Going on would start yet another Grok run and spend quota again.
-  if (MEDIA_COMMANDS.has(command) && process.env[WORKER_ENV_VAR]) {
+  // launched. Going on would start yet another Grok run and spend quota again;
+  // through `ask`, Grok could even call itself in a loop.
+  if (GROK_COMMANDS.has(command) && process.env[WORKER_ENV_VAR]) {
     fail(
       [
         `Refusing to run \`${command}\` inside a Grok run started by this plugin (${WORKER_ENV_VAR} is set).`,
@@ -656,7 +676,7 @@ async function main() {
     fail(error.message);
   }
   const { options, positionals } = parsed;
-  const dead = command === "ask" ? undefined : DEAD_OPTIONS.find((option) => options[option] !== undefined);
+  const dead = KEEP_DEAD_OPTIONS.has(command) ? undefined : DEAD_OPTIONS.find((option) => options[option] !== undefined);
   if (dead) {
     fail(`--${dead} is not an option of this plugin.`);
   }
