@@ -2,7 +2,7 @@
 
 Every live Grok run made while building Round 1 of the fork. The spec allows at most 12 generations for the round (`docs/spec-paridade-higgsfield.md` §6), always in the smallest configuration. No credentials or account details are recorded here.
 
-Grok CLI 1.0.41 (4220f3b224a6), macOS arm64. Generations used in Round 1: **9 of 12**. The spec's three reserve runs (10–12, for redoing a failed test) were not needed: every planned test succeeded on its first attempt.
+Grok CLI 1.0.41 (4220f3b224a6), macOS arm64. Generations used: **10 of 12**. Round 1 needed 9: every planned test succeeded on its first attempt, so none of the spec's three reserve runs (10–12, for redoing a failed test) went to a retry. Run 10 was made after the round, with the user's approval, for the README gallery.
 
 ## Generations
 
@@ -17,6 +17,7 @@ Grok CLI 1.0.41 (4220f3b224a6), macOS arm64. Generations used in Round 1: **9 of
 | 7 | 2026-09-25 00:29 | #8, `ref-video --loop` | `ref-video "a red apple slowly turning on a white table" --image apple-1.jpg --loop --draft --duration 4` | ok · 53.3 s · 2 turns · input tokens 27,674 uncached + 1,152 cache read · 29,259 total · $0.0199 · `reference_to_video` received `apple-1.jpg` as both `first_frame` and `last_frame`, no `images`, and the prompt with ". Locked camera, seamless loop." appended · first and last frame of the clip: SSIM 0.960 (the non-loop clip of run 6: 0.404) | 848×480 H.264 24 fps, 4.04 s, AAC audio, 714,004 B | `4b30630f-b789-4468-b053-9d3f6c8b0601` |
 | 8 | 2026-09-25 00:30 | #8, `ref-video --voice` speaking Portuguese | `ref-video "<IMAGE_0> sets the scene: a young woman sits at this desk, turns to the camera and says in Brazilian Portuguese, in the voice <AUDIO_0>: 'Olá! Este é um teste de voz em português.'" --image hero.jpg --voice eve --draft --duration 6` | ok · 61.8 s · 2 turns · input tokens 25,757 uncached + 2,816 cache read · 28,793 total · $0.0184 · `reference_to_video` received `voices: ["eve"]`, the image and the prompt verbatim · audio track present (mean −29.0 dB, peak −8.2 dB) · the Portuguese line is **intelligible**, confirmed by the user on listening | 848×480 H.264 24 fps, 6.04 s, AAC audio, 1,076,921 B | `37fff857-0f67-4f04-9e85-8c407da182c3` |
 | 9 | 2026-09-25 00:32 | #8, `ref-video` with 8 references | `ref-video "a slow pan along a gallery wall showing <IMAGE_0>, … and <IMAGE_7> as framed prints" --image` × 8 (`apple-1.jpg`, `apple-2.jpg`, `apple-1-flipped.jpg`, `hero.jpg`, `edit-before.jpg`, `edit-after.jpg`, `variations-1.jpg`, `variations-2.jpg`) `--draft --duration 4` | ok · 62.9 s · 2 turns · input tokens 24,550 uncached + 5,376 cache read · 30,611 total · $0.0190 · `reference_to_video` received all 8 images in order and ran: **the real limit is above 7** on this CLI (its schema states 14) | 848×480 H.264 24 fps, 4.04 s, AAC audio, 730,026 B | `f57a895f-4c1d-48e1-a633-c62f586ce513` |
+| 10 | 2026-09-25 03:27 | README gallery, after the round | `image "Product turnaround sheet of one matte terracotta ceramic coffee mug, shown three times in a single row: front view, side view with the handle, and a view from above. … on a flat solid pure green #00FF00 background with even studio lighting." --aspect 16:9 --name mug-sheet` | ok · 26.3 s · $0.0177 · only `image_gen` offered · Image 2.0 (the default) | 1280×720 JPEG, 135,657 B | `1a06c9e9-9e18-4846-a1f5-feb0e519ed09` |
 
 Session 2's id is the UUID the plugin generated, which confirms Grok accepted `--session-id`. The offered tools come from each session's `tool_definitions.json`.
 
@@ -25,6 +26,8 @@ Runs 3 and 4 used the companion at `0e206ef` (isolation from #3 included) in a s
 Run 5 used the companion at `8d76239`. The session log does not name the image model: `updates.jsonl` and the other session files only record the chat model (`grok-4.7`). That the plugin passes `GROK_IMAGE_EDIT_MODEL_OVERRIDE=grok-imagine-image-2.0` is covered by the black-box tests; the live run shows an edit with that override set works on the subscription and renders Portuguese accents correctly.
 
 Runs 6–9 used the companion at `b1d932c` in a scratch workspace, all with `--draft` (480p). Their inputs were existing files: `apple-1.jpg` and `apple-2.jpg` are the outputs of runs 1 and 2 (1024×1024), `apple-1-flipped.jpg` is a mirrored copy of the first made with `sips`, and the others are the `docs/` images of this repository. Every clip came out 848×480 for `aspect_ratio: 16:9`, whatever the shape of the references. SSIM compares the first and the last frame of the H.264 stream (`v:0`), not the MJPEG cover.
+
+Run 10 used the companion at `e0a6342` (2.0.0) in a scratch workspace. Its output fed `cutout` and `split` (`split --expect 3` found the three mugs) for the README gallery; those local tools spend no quota.
 
 ## Checks that generate nothing
 
